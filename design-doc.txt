@@ -1,0 +1,70 @@
+General Idea:
+  Build a simple password-cracking API server hosted on the Hive cluster
+    Parameters: nonce values, etc
+    Response: secret-key matching with parameters (hopefully!)
+    The server should use some distributed algorithm to crack the password quickly
+      Could try all 7 or 10 digit phone numbers
+      Precompute our dictionary of passwords and common SSID names for faster
+      lookup
+
+Attack from Raspberry Pi:
+  Option 1: passive attack
+    Configure raspberry pi with wireless adapter to listen for WPA/WPA2
+    handshake packets (monitor mode)
+    Once the necessary parameters are acquired, send them up to the API server
+    Hive cracks password (tied it to the SSID) and responds
+    Raspberry pi can then send packets to server to be decrypted
+  Option 2: active (man-in-the-middle) attack
+    Option 1: passive-active attack
+      Pick a popular WiFi AP in an area
+      Send out fake beacon message using selected AP’s ID
+      Once a device sends an authorization (or authentication?) request, act as
+      the selected AP and initiate a handshake
+      Once device sends you handshake response, hit API server on Hive
+      If there is a timeout (or something that will make the client device
+      disconnect), maybe fake that the client response was corrupted in flight
+      so it’ll resend handshake packet?
+      ToDo: look into the specifics of potential timeouts
+      Theoretically, get the secret-key from Hive server and then generate
+      appropriate keys (group one, etc)
+      See all traffic as it passes through, can then perform man in the middle
+      attacks.
+    Option 2: active-active attack
+      Sniff packets and find a client device, AP pair
+      Bounce the client device of the real AP with a deauthentication message
+      Send out fake beacon message using AP’s ID and fake the signal of our AP
+      to be stronger so that the client will connect to our rogue one
+      Perform the above option 1 steps?
+
+Parts Required
+  Raspberry pi
+  USB wireless adapter with monitor mode
+  Hive cluster access
+  1 or 2 routers we don’t know the password for
+
+
+ToDo:
+  Determine how to distribute computations across Hive GPUs
+  What we need: Idea on what the hardware is and what it supports
+  Determine how we can make these machines work in parallel with each other
+  Nvidia GPU Computing Intro Slides
+  Determine framework for API (Rails probably?)
+  Determine where to host the API, and what authentication we should use
+  Determine how to correctly configure API to hook to Hive Cluster
+  Determine how to use the seperate wifi cards to sniff on one network while
+  using another for datalink (Raspberry Pi)
+  Figure out a simulated environment to hack so we don’t hack the public
+
+3 Components to Build Out:
+  Raspberry Pi AP - Software to capture packets, send to server, and possibly
+  alter packet data
+  API Spec - Design and build the API interface that the Raspberry Pi will
+  connect to. Determine what calls can be made, and what the responses should
+  look like. This will be what triggers the password cracker.
+  Hive GPU Cluster Password Cracker - Software that will distribute the password
+  cracking across the hive cluster GPUs and return the results to the API
+
+Order of Priority:
+  We will most likely try to build out the API and GPU cluster software first in
+  parallel. Once these are working, we can then build and test the appropriate
+  software for the Raspberry Pi that will utilize the API.

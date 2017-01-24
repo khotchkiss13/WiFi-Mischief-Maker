@@ -1,0 +1,65 @@
+Preliminary API Design. Needs Refinement
+
+Two parts to API:
+	Accessible Calls (Controllers)
+	Data (Models)
+
+We need to understand the data that we need and will be using/storing
+We need to understand how we are going to access the data
+We should also have some form of auth so that all activity can be tied to users
+
+Most important functionalities:
+  Given connectivity packets, crack the password
+  Store and decrypt the packets
+  Return password for a specific SSID (Need to be able to invalidate records as well)
+
+Data Models:
+  Access Point:
+    INT: ID number (set by db)
+    STRING: SSID
+    STRING: Password (Since we are malicious, plaintext passwords!)
+    BOOL: Valid Password -> Default to False, Set to True on password crack
+    Connectivity Packets?
+  Packets:
+    INT: ID number (set by db)
+    INT: Type (Establish connection vs Data) (Will be an enumerable that we define)
+    TEXT: Encrypted Value
+    Header attributes -> May want to create a separate model for
+    TEXT: Payload
+    INT: Access Point sent to/from (Will be the id of the corresponding AP record)
+
+
+
+API Commands:
+
+  GET /accesspoints/
+    Returns a JSON array of all AccessPoints that we have records for. Can be
+    given an SSID to limit the results using `?ssid=_`
+
+  POST /accesspoints/
+    Creates a new AccessPoint record using the given parameters. Parameters
+    needed will include the SSID
+
+  GET /accesspoints/{ID}
+    Returns the JSON attributes of the corresponding access point (i.e password)
+
+  PATCH/PUT /accesspoints/{ID}/
+    Will be used to update parameters of the AccessPoint. Can also mark the
+    password as invalid so that subsequent calls for this AccessPoint alert the
+    user that they should try to send the WPA2 protocol packets again
+
+  GET /accesspoints/{ID}/packets/
+    Returns a JSON array of all packets that have been recorded going through
+    the AccessPoint
+
+  POST /accesspoints/{ID}/packets/
+    Creates a new packet for the AccessPoint. Can accept decrypted values, or
+    the encrypted packet, which will then trigger for it to be decrypted using
+    the password of the AccessPoint
+
+  GET /accesspoints/{ID}/packets/{ID}
+  	 Returns the JSON object of the corresponding packet for use
+
+
+USEFUL DOCUMENTS:
+Token Auth in Rails 5
