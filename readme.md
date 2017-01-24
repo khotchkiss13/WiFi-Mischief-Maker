@@ -73,9 +73,10 @@ We use [SemVer](http://semver.org/) for versioning. For the versions available, 
 
 ## Authors
 
-* **Billie Thompson** - *Initial work* - [PurpleBooth](https://github.com/PurpleBooth)
-
-See also the list of [contributors](https://github.com/your/project/contributors) who participated in this project.
+* **Kyle Hotchkiss** [khotchkiss13@berkeley.edu](khotchkiss13@berkeley.edu)
+  **Amy Shu** [awshu@berkeley.edu](awshu@berkeley.edu)
+  **Nate Parke** [nathaniel.parke@berkeley.edu](nathaniel.parke@berkeley.edu)
+  **Warren Shen** [warrenzshen@gmail.com](warrenzshen@gmail.com)
 
 ## License
 

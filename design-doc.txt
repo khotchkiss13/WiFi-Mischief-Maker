@@ -68,3 +68,27 @@ Order of Priority:
   We will most likely try to build out the API and GPU cluster software first in
   parallel. Once these are working, we can then build and test the appropriate
   software for the Raspberry Pi that will utilize the API.
+
+
+NOTES 1/24 after lecture:
+  Big Idea is to set up the access point to answer all, even for SSID's that are
+  password protected, and in real time get the user to connect to the raspberry
+  pi instead of whatever other access points are possibly available.
+
+  Goal is to configure the Raspberry Pi to use the realtime API to crack the
+  password and then get the computer to finish the connection.
+
+  Testing:
+    There are two parts for us to test. First we need to test the password cracking
+    API, and then we need to test the Raspberry Pi.
+
+    API:
+      Give the API WPA2 configuration packets that we know the password for, make
+      sure that the API can a) crack the password in a reasonable timeframe, and
+      b) give back the appropriate information needed to complete the connection
+
+    Raspberry Pi:
+      Place the Pi near a computer that is not connected to WiFi, and see if it
+      can connect to it using an SSID that is know to the computer (i.e. our
+      home WiFi)
+      
