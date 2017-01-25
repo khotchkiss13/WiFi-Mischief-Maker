@@ -1,7 +1,8 @@
 Please give me location of your design document.
+- Design document now in `design-doc.txt`.
 
 I'll have an RPi for you and one of these:
- ALFA AWUS036NEH Long Range WIRELESS 802.11b/g/n Wi-Fi USBAdapter 
+ ALFA AWUS036NEH Long Range WIRELESS 802.11b/g/n Wi-Fi USBAdapter
 
 is on order.
 
