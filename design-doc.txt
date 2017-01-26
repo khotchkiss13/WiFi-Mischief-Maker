@@ -91,4 +91,10 @@ NOTES 1/24 after lecture:
       Place the Pi near a computer that is not connected to WiFi, and see if it
       can connect to it using an SSID that is know to the computer (i.e. our
       home WiFi)
-      
+
+NOTES 1/26 during Lecture:
+  Work on capturing packets, and getting a device to connect to a AP with a known
+  password.
+
+  Capturing of packets: MAC filters to make sure to only capture appropriate
+  packets.
