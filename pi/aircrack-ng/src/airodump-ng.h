@@ -232,11 +232,12 @@ struct AP_info
     float gps_loc_best[5];    /* best gps coordinates     */
 
 
+    unsigned int nb_hshake;   /* total number of handshakes caught */
     unsigned long nb_bcn;     /* total number of beacons  */
     unsigned long nb_pkt;     /* total number of packets  */
     unsigned long nb_data;    /* number of  data packets  */
     unsigned long nb_data_old;/* number of data packets/sec*/
-    int nb_dataps;  /* number of data packets/sec*/
+    int nb_dataps;            /* number of data packets/sec*/
     struct timeval tv;        /* time for data per second */
 
     unsigned char bssid[6];   /* the access point's MAC   */
@@ -260,7 +261,7 @@ struct AP_info
     struct timeval ftimel;    /* time of last frame          */
     struct timeval ftimer;    /* time of restart             */
 
-    char *key;		      /* if wep-key found by dict */
+    char *key;	      	      /* if wep-key found by dict */
     int essid_stored;         /* essid stored in ivs file? */
 
     char decloak_detect;      /* run decloak detection? */
