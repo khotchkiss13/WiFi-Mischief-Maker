@@ -483,9 +483,12 @@ int addESSID(char* essid, int len, int expiration)
 
 int capture_packet(unsigned char* packet, int length)
 {
+  if (packet[0] == 0x80) return 1;
+
   struct pcap_pkthdr pkh;
   struct timeval tv;
   int n;
+
 #if defined(__sun__)
   struct flock fl;
   fl.l_start = 0;
@@ -493,7 +496,7 @@ int capture_packet(unsigned char* packet, int length)
   fl.l_whence = SEEK_SET;
 #endif
 
-  if( opt.f_cap != NULL && length >= 10)
+  if (opt.f_cap != NULL && length >= 10)
   {
     pkh.caplen = pkh.len = length;
 
@@ -510,6 +513,7 @@ int capture_packet(unsigned char* packet, int length)
 #else
     flock(fileno(opt.f_cap), LOCK_EX);
 #endif
+
     if( fwrite( &pkh, 1, n, opt.f_cap ) != (size_t) n )
     {
       perror( "fwrite(packet header) failed" );
@@ -519,7 +523,7 @@ int capture_packet(unsigned char* packet, int length)
 #else
       flock(fileno(opt.f_cap), LOCK_UN);
 #endif
-      return( 1 );
+      return 1;
     }
 
     fflush( stdout );
@@ -548,8 +552,10 @@ int capture_packet(unsigned char* packet, int length)
     flock(fileno(opt.f_cap), LOCK_UN);
 #endif
   }
+
   return 0;
 }
+
 int dump_initialize( char *prefix )
 {
   int i=0;
@@ -1295,32 +1301,36 @@ int is_filtered_netmask(unsigned char *bssid)
 int send_packet(void *buf, size_t count)
 {
   struct wif *wi = _wi_out; /* XXX globals suck */
+
   if (wi_write(wi, buf, count, NULL) == -1) {
     perror("wi_write()");
     return -1;
   }
 
-  pthread_mutex_lock( &mx_cap );
-  if(opt.record_data)
+  pthread_mutex_lock(&mx_cap);
+
+  if (opt.record_data)
     capture_packet(buf, count);
-  pthread_mutex_unlock( &mx_cap );
+
+  pthread_mutex_unlock(&mx_cap);
 
   nb_pkt_sent++;
   return 0;
 }
 
-int read_packet(void *buf, size_t count)
+int read_packet(void *buf, size_t length)
 {
   struct wif *wi = _wi_in; /* XXX */
-  int rc;
+  int read_count;
 
-  rc = wi_read(wi, buf, count, NULL);
-  if (rc == -1) {
+  read_count = wi_read(wi, buf, length, NULL);
+
+  if (read_count == -1) {
     perror("wi_read()");
     return -1;
   }
 
-  return rc;
+  return read_count;
 }
 
 int msleep( int msec )
@@ -1895,6 +1905,7 @@ int packet_xmit(unsigned char* packet, int length)
     if((i+1)<fragments)
       usleep(3000);
   }
+
   return 0;
 }
 
@@ -1902,17 +1913,17 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
 
 int packet_xmit_external(unsigned char* packet, int length, struct AP_conf *apc)
 {
+  if (packet == NULL)
+    return 1;
+
+  if (length < 40 || length > 3000)
+    return 1;
+
+  int z = 0;
   unsigned char buf[4096];
-  int z=0;
-
-  if(packet == NULL)
-    return 1;
-
-  if(length < 40 || length > 3000)
-    return 1;
-
   memset(buf, 0, 4096);
-  if(memcmp(packet, buf, 11) != 0)
+
+  if (memcmp(packet, buf, 11) != 0)
   {
     // Wrong header
     return 1;
@@ -1923,21 +1934,19 @@ int packet_xmit_external(unsigned char* packet, int length, struct AP_conf *apc)
   length -= 14;
   memcpy(packet, buf+14, length);
 
+  /* `packet` here is the same as `h80211` in `airodump-ng` */
   z = ( ( packet[1] & 3 ) != 3 ) ? 24 : 30;
 
   if( opt.crypt == CRYPT_WEP || opt.prgalen > 0 )
   {
-    if(create_wep_packet(packet, &length, z) != 0) return 1;
+    if(create_wep_packet(packet, &length, z) != 0)
+      return 1;
   }
 
-  if(memcmp(buf+12, (unsigned char *)"\x00\x00", 2) == 0) /* incoming packet */
-  {
+  if(memcmp(buf + 12, (unsigned char*) "\x00\x00", 2) == 0) /* incoming packet */
     packet_recv(packet, length, apc, 0);
-  }
-  else if(memcmp(buf+12, (unsigned char *)"\xFF\xFF", 2) == 0) /* outgoing packet */
-  {
+  else if(memcmp(buf + 12, (unsigned char*) "\xFF\xFF", 2) == 0) /* outgoing packet */
     send_packet(packet, length);
-  }
 
   return 0;
 }
@@ -2585,14 +2594,16 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
   unsigned char bssid[6];
   unsigned char smac[6];
   unsigned char dmac[6];
+  char essid[256];
+
   int trailer=0;
   unsigned char *tag=NULL;
   int len, i, c;
   unsigned char *buffer;
-  char essid[256];
   struct timeval tv1;
   u_int64_t timestamp;
   char fessid[MAX_IE_ELEMENT_SIZE+1];
+
   int seqnum, fragnum, morefrag;
   int gotsource, gotbssid;
   int remaining, bytes2use;
@@ -2605,10 +2616,12 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
   reasso = 0; fixed = 0;
   memset(essid, 0, 256);
 
-  pthread_mutex_lock( &mx_cap );
-  if(opt.record_data)
+  pthread_mutex_lock(&mx_cap);
+
+  if (opt.record_data)
     capture_packet(packet, length);
-  pthread_mutex_unlock( &mx_cap );
+
+  pthread_mutex_unlock(&mx_cap);
 
   z = ( ( packet[1] & 3 ) != 3 ) ? 24 : 30;
 
@@ -2740,16 +2753,22 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     opt.st_end = st_cur;
   }
 
+  // `bssid_match` is true if the current packet's bssid matches our AP's bssid
+  int bssid_match = memcmp(bssid, opt.r_bssid, 6) == 0;
+
+  // NOTE: doesn't seem to be support for `fromDS` being on
 
   /* Got a data packet with our bssid set and ToDS==1*/
-  if( memcmp( bssid, opt.r_bssid, 6) == 0 && ( packet[0] & 0x08 ) == 0x08 && (packet[1] & 0x03) == 0x01 )
+  if (bssid_match && (packet[0] & 0x08) == 0x08 && (packet[1] & 0x03) == 0x01)
   {
-    //         printf("to me with len: %d\n", length);
+    printf("Received data packet with toDS=1 to me with len: %d\n", length);
     fragnum = packet[22] & 0x0F;
+
+    // Note the little endian
     seqnum = (packet[22] >> 4) | (packet[23] << 4);
     morefrag = packet[1] & 0x04;
 
-    //         printf("frag: %d, morefrag: %d\n", fragnum, morefrag);
+    printf("frag: %d, morefrag: %d\n", fragnum, morefrag);
 
     /* Fragment? */
     if(fragnum > 0 || morefrag)
@@ -2777,6 +2796,7 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     }
 
     /* To our mac? */
+    // If the destination MAC is us, then this is possibly a handshake packet
     if( (memcmp( dmac, opt.r_bssid, 6) == 0 && !opt.adhoc ) ||
         (memcmp( dmac, opt.r_smac, 6) == 0 && opt.adhoc ) )
     {
@@ -2821,6 +2841,7 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
       else
       {
         /* unencrypted data packet, nothing special, send it through dev_ti */
+        // TODO: also check for version 2 of WPA, which is x02\x01
         if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x01\x01", 10) == 0)
         {
           /* got eapol start frame */
@@ -2840,7 +2861,7 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
           st_cur->wpa.state |= 1;
 
           /* build first eapol frame */
-          memcpy(h80211, "\x08\x02\xd5\x00", 4);
+          memcpy(h80211, "\x88\x02\xd5\x00", 4);
           len = 4;
 
           memcpy(h80211+len, smac, 6);
@@ -3048,6 +3069,7 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
 
     ti_write(dev.dv_ti, h80211, length);
   }
+  // Packet does not have `toDS` set
   else
   {
     //react on management frames
@@ -3292,46 +3314,52 @@ skip_probe:
       }
     }
 
-    //auth req
-    if(packet[0] == 0xB0 && memcmp( bssid, opt.r_bssid, 6) == 0 )
+    // 802.11 authentication request - default open system -
+    // that AP responds to with authentication response => not association
+    if (packet[0] == 0xB0 && bssid_match)
     {
-      if(packet[z] == 0x00) //open system auth
+      // Authentication algorithm: open system
+      // z (which is basically an offset to the frame body) = 24
+      if(packet[z] == 0x00)
       {
-        //make sure its an auth request
-        if(packet[z+2] == 0x01)
+        // Authentication sequence number: make sure its an auth request
+        if (packet[z + 2] == 0x01)
         {
-          if(opt.verbose)
+          if (opt.verbose)
           {
             PCT; printf("Got an auth request from %02X:%02X:%02X:%02X:%02X:%02X (open system)\n",
                 smac[0],smac[1],smac[2],smac[3],smac[4],smac[5]);
           }
-          memcpy(packet +  4, smac, 6);
+          memcpy(packet + 4, smac, 6);
           memcpy(packet + 10, dmac, 6);
-          packet[z+2] = 0x02;
+          packet[z + 2] = 0x02;
 
-          if(opt.forceska)
+          if (opt.forceska)
           {
             packet[z] = 0x01;
-            packet[z+4] = 13;
+            // Status code: 13 means AP does not support current authentication algorithm
+            packet[z + 4] = 13;
           }
 
           send_packet(packet, length);
           return 0;
         }
       }
-      else //shared key auth
+      // Authentication: shared system
+      // Does not adhere to current security standards - ignore for now
+      else
       {
         //first response
-        if(packet[z+2] == 0x01 && (packet[1] & 0x40) == 0x00 )
+        if (packet[z + 2] == 0x01 && (packet[1] & 0x40) == 0x00)
         {
-          if(opt.verbose)
+          if (opt.verbose)
           {
             PCT; printf("Got an auth request from %02X:%02X:%02X:%02X:%02X:%02X (shared key)\n",
                 smac[0],smac[1],smac[2],smac[3],smac[4],smac[5]);
           }
-          memcpy(packet +  4, smac, 6);
+          memcpy(packet + 4, smac, 6);
           memcpy(packet + 10, dmac, 6);
-          packet[z+2] = 0x02;
+          packet[z + 2] = 0x02;
 
           remaining = opt.skalen;
 
@@ -3381,10 +3409,11 @@ skip_probe:
       }
     }
 
-    //asso req or reasso
-    if((packet[0] == 0x00 || packet[0] == 0x20) && memcmp( bssid, opt.r_bssid, 6) == 0 )
+    // 802.1X association request or reassociation
+    // 0x00 = association, 0x20 = reassociation
+    if ((packet[0] == 0x00 || packet[0] == 0x20) && bssid_match)
     {
-      if(packet[0] == 0x00) //asso req
+      if (packet[0] == 0x00)
       {
         reasso = 0;
         fixed = 4;
@@ -3397,42 +3426,45 @@ skip_probe:
 
       st_cur->wep = (packet[z] & 0x10) >> 4;
 
+      // `len` is a really function-global variable used for various
+      // seemingly unrelated functions - here is stores length of an essid
       tag = parse_tags(packet+z+fixed, 0, length-z-fixed, &len);
-      if(tag != NULL && tag[0] >= 32 && len < 256)
+      if (tag != NULL && tag[0] >= 32 && len < 256)
       {
         memcpy(essid, tag, len);
         essid[len] = 0x00;
-        if(opt.f_essid && !gotESSID(essid, len))
+
+        if (opt.f_essid && !gotESSID(essid, len))
           return 0;
       }
 
-      st_cur->wpatype=0;
-      st_cur->wpahash=0;
+      st_cur->wpatype = 0;
+      st_cur->wpahash = 0;
 
       tag = parse_tags(packet+z+fixed, 0xDD, length-z-fixed, &len);
-      while( tag != NULL )
+      while(tag != NULL)
       {
-        //                 printf("Found WPA TAG\n");
+        printf("Found WPA TAG\n");
         wpa_client(st_cur, tag-2, len+2);
         tag += (tag-2)[1]+2;
         tag = parse_tags(tag-2, 0xDD, length-(tag-packet)+2, &len);
       }
 
       tag = parse_tags(packet+z+fixed, 0x30, length-z-fixed, &len);
-      while( tag != NULL )
+      while(tag != NULL)
       {
-        //                 printf("Found WPA2 TAG\n");
+        printf("Found WPA2 TAG\n");
         wpa_client(st_cur, tag-2, len+2);
         tag += (tag-2)[1]+2;
         tag = parse_tags(tag-2, 0x30, length-(tag-packet)+2, &len);
       }
 
-      if(!reasso)
+      if (!reasso)
         packet[0] = 0x10;
       else
         packet[0] = 0x30;
 
-      memcpy(packet +  4, smac, 6);
+      memcpy(packet + 4, smac, 6);
       memcpy(packet + 10, dmac, 6);
 
       //store the tagged parameters and insert the fixed ones
@@ -3454,6 +3486,7 @@ skip_probe:
       length = len + z + 6;
 
       send_packet(packet, length);
+
       if(!opt.quiet)
       {
         PCT; printf("Client %02X:%02X:%02X:%02X:%02X:%02X %sassociated",
@@ -3490,6 +3523,8 @@ skip_probe:
 
       memset(essid, 0, 256);
 
+
+      // Send 1st handshake packet
       /* either specified or determined */
       if( (opt.sendeapol && ( opt.wpa1type || opt.wpa2type ) ) || (st_cur->wpatype && st_cur->wpahash) )
       {
@@ -3505,7 +3540,10 @@ skip_probe:
         st_cur->wpa.state |= 1;
 
         /* build first eapol frame */
-        memcpy(h80211, "\x08\x02\xd5\x00", 4);
+        // x08 = data frame or x88 = QoS data frame
+        // x02 = frame fromDS (toDS: 0, fromDS: 1)
+        // xd500 = frame duration
+        memcpy(h80211, "\x88\x02\xd5\x00", 4);
         len = 4;
 
         memcpy(h80211+len, smac, 6);
@@ -3515,17 +3553,23 @@ skip_probe:
         memcpy(h80211+len, bssid, 6);
         len += 6;
 
-        h80211[len] = 0x60;
-        h80211[len+1] = 0x0f;
+        // Sequence and fragment numbers
+        h80211[len] = 0x00;
+        h80211[len+1] = 0x00;
         len += 2;
 
-        //llc+snap
+        // QoS = uncomment on x88 (QoS data frame) use
+        h80211[len] = 0x06;
+        h80211[len+1] = 0x00;
+        len += 2;
+
+        // LLC and SNAP
         memcpy(h80211+len, "\xAA\xAA\x03\x00\x00\x00\x88\x8E", 8);
         len += 8;
 
-        //eapol
+        // EAPOL
         memset(h80211+len, 0, 99);
-        h80211[len]    = 0x01;//version
+        h80211[len]    = 0x02;//version
         h80211[len+1]  = 0x03;//type
         h80211[len+2]  = 0x00;
         h80211[len+3]  = 0x5F;//len
@@ -3543,6 +3587,7 @@ skip_probe:
             h80211[len+4]  = 0x02; //WPA2
         }
 
+        // Key information
         if(opt.sendeapol >= 1 && opt.sendeapol <= 2) //specified
         {
           if(opt.sendeapol == 1) //MD5
@@ -3570,9 +3615,11 @@ skip_probe:
           }
         }
 
+        // Key length = 0x0020 => 16 bytes
         h80211[len+7] = 0x00;
-        h80211[len+8] = 0x20; //keylen
+        h80211[len+8] = 0x10;
 
+        // Nonce
         memset(h80211+len+9, 0, 90);
         memcpy(h80211+len+17, st_cur->wpa.anonce, 32);
 
@@ -4902,12 +4949,12 @@ usage:
       printf("Couldn't set MAC on interface \"%s\".\n", ti_name(dev.dv_ti2));
     }
   }
-  //start sending beacons
-  if( pthread_create( &(beaconpid), NULL, (void *) beacon_thread,
-        (void *) &apc ) != 0 )
+
+  // Create thread for beacon packets and begin to send
+  if( pthread_create( &(beaconpid), NULL, (void *) beacon_thread, (void *) &apc ) != 0 )
   {
     perror("Beacons pthread_create");
-    return( 1 );
+    return 1;
   }
 
   if( opt.caffelatte )
@@ -4946,7 +4993,7 @@ usage:
 
   for( ; ; )
   {
-    if(opt.s_file != NULL)
+    if (opt.s_file != NULL)
     {
       n = sizeof( pkh );
 
@@ -5033,51 +5080,49 @@ usage:
       continue;
     }
 
-    FD_ZERO( &read_fds );
-    FD_SET( dev.fd_in, &read_fds );
-    FD_SET(ti_fd(dev.dv_ti), &read_fds );
-    if(opt.external)
+    FD_ZERO(&read_fds);
+    FD_SET(dev.fd_in, &read_fds);
+    FD_SET(ti_fd(dev.dv_ti), &read_fds);
+
+    if (opt.external)
     {
-      FD_SET(ti_fd(dev.dv_ti2), &read_fds );
-      ret_val = select( MAX(ti_fd(dev.dv_ti), MAX(ti_fd(dev.dv_ti2), dev.fd_in)) + 1, &read_fds, NULL, NULL, NULL );
+      FD_SET(ti_fd(dev.dv_ti2), &read_fds);
+      ret_val = select(MAX(ti_fd(dev.dv_ti), MAX(ti_fd(dev.dv_ti2), dev.fd_in)) + 1, &read_fds, NULL, NULL, NULL);
     }
     else
-      ret_val = select( MAX(ti_fd(dev.dv_ti), dev.fd_in) + 1, &read_fds, NULL, NULL, NULL );
-    if( ret_val < 0 )
+      ret_val = select(MAX(ti_fd(dev.dv_ti), dev.fd_in) + 1, &read_fds, NULL, NULL, NULL);
+
+    if (ret_val < 0)
       break;
-    if( ret_val > 0 )
+
+    if (ret_val > 0)
     {
       if( FD_ISSET(ti_fd(dev.dv_ti), &read_fds ) )
       {
         len = ti_read(dev.dv_ti, buffer, sizeof( buffer ) );
-        if( len > 0  )
-        {
+        if (len > 0)
           packet_xmit(buffer, len);
-        }
       }
+
       if( opt.external && FD_ISSET(ti_fd(dev.dv_ti2), &read_fds ) )
       {
         len = ti_read(dev.dv_ti2, buffer, sizeof( buffer ) );
         if( len > 0  )
-        {
           packet_xmit_external(buffer, len, &apc);
-        }
       }
+
       if( FD_ISSET( dev.fd_in, &read_fds ) )
       {
         len = read_packet( buffer, sizeof( buffer ) );
         if( len > 0 )
-        {
           packet_recv( buffer, len, &apc, (opt.external & EXT_IN));
-        }
       }
-    } //if( ret_val > 0 )
-  } //for( ; ; )
+    }
+  }
 
   ti_close( dev.dv_ti );
 
-
   /* that's all, folks */
 
-  return( 0 );
+  return 0;
 }
