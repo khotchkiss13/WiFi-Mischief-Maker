@@ -1327,11 +1327,11 @@ int dump_add_packet( unsigned char *h80211, int caplen, struct rx_info *ri, int 
             ap_prv->next  = ap_cur;
 
         memcpy( ap_cur->bssid, bssid, 6 );
-		if (ap_cur->manuf == NULL) {
-			ap_cur->manuf = get_manufacturer(ap_cur->bssid[0], ap_cur->bssid[1], ap_cur->bssid[2]);
-		}
+		    if (ap_cur->manuf == NULL) {
+			      ap_cur->manuf = get_manufacturer(ap_cur->bssid[0], ap_cur->bssid[1], ap_cur->bssid[2]);
+		    }
 
-	ap_cur->nb_pkt = 0;
+	      ap_cur->nb_pkt = 0;
         ap_cur->prev = ap_prv;
 
         ap_cur->tinit = time( NULL );
@@ -1350,7 +1350,7 @@ int dump_add_packet( unsigned char *h80211, int caplen, struct rx_info *ri, int 
 
         ap_cur->uiv_root = uniqueiv_init();
 
-	ap_cur->nb_data = 0;
+	      ap_cur->nb_data = 0;
         ap_cur->nb_dataps = 0;
         ap_cur->nb_data_old = 0;
         gettimeofday(&(ap_cur->tv), NULL);
@@ -1361,6 +1361,7 @@ int dump_add_packet( unsigned char *h80211, int caplen, struct rx_info *ri, int 
 
         G.ap_end = ap_cur;
 
+        ap_cur->nb_hshake  = 0;
         ap_cur->nb_bcn     = 0;
 
         ap_cur->rx_quality = 0;
@@ -1539,6 +1540,7 @@ int dump_add_packet( unsigned char *h80211, int caplen, struct rx_info *ri, int 
 			st_cur->manuf = get_manufacturer(st_cur->stmac[0], st_cur->stmac[1], st_cur->stmac[2]);
 		}
 
+        st_cur->hshake_logged = 0;
 	st_cur->nb_pkt = 0;
 
         st_cur->prev = st_prv;
@@ -2017,7 +2019,10 @@ skip_probe:
             p += 2 + p[1];
         }
         if(st_cur != NULL)
-            st_cur->wpa.state = 0;
+        {
+          st_cur->hshake_logged = 0;
+          st_cur->wpa.state = 0;
+        }
     }
 
     /* packet parsing: some data */
@@ -2358,7 +2363,7 @@ skip_probe:
                 }
             }
 
-            if( st_cur->wpa.state == 7)
+            if(st_cur->wpa.state == 7)
             {
                 memcpy( st_cur->wpa.stmac, st_cur->stmac, 6 );
                 memcpy( G.wpa_bssid, ap_cur->bssid, 6 );
@@ -2368,6 +2373,11 @@ skip_probe:
                     G.wpa_bssid[0], G.wpa_bssid[1], G.wpa_bssid[2],
                     G.wpa_bssid[3], G.wpa_bssid[4], G.wpa_bssid[5]);
 
+                if (!st_cur->hshake_logged) {
+                  /* Increment the number of handshakes found for associated AP */
+                  st_cur->base->nb_hshake += 1;
+                  st_cur->hshake_logged = 1;
+                }
 
                 if( G.f_ivs != NULL )
                 {
@@ -3179,7 +3189,7 @@ void dump_print( int ws_row, int ws_col, int if_num )
     if(G.singlechan)
     	strcat(strbuf, "RXQ ");
 
-    strcat(strbuf, " Beacons    #Data, #/s  CH  MB   ENC  CIPHER AUTH ");
+    strcat(strbuf, "#Handshakes #Beacons    #Data, #/s  CH  MB   ENC  CIPHER AUTH ");
 
     if (G.show_uptime)
     	strcat(strbuf, "       UPTIME  ");
@@ -3286,20 +3296,22 @@ void dump_print( int ws_row, int ws_col, int if_num )
 
 	    if(G.singlechan)
 	    {
-		snprintf( strbuf+len, sizeof(strbuf)-len, "  %3d %3d %8lu %8lu %4d",
-			ap_cur->avg_power,
-			ap_cur->rx_quality,
-			ap_cur->nb_bcn,
-			ap_cur->nb_data,
-			ap_cur->nb_dataps );
+        snprintf( strbuf+len, sizeof(strbuf)-len, "  %3d %3d %11i %8lu %8lu %4d",
+          ap_cur->avg_power,
+          ap_cur->rx_quality,
+          ap_cur->nb_hshake,
+          ap_cur->nb_bcn,
+          ap_cur->nb_data,
+          ap_cur->nb_dataps );
 	    }
 	    else
 	    {
-		snprintf( strbuf+len, sizeof(strbuf)-len, "  %3d %8lu %8lu %4d",
-			ap_cur->avg_power,
-			ap_cur->nb_bcn,
-			ap_cur->nb_data,
-			ap_cur->nb_dataps );
+        snprintf( strbuf+len, sizeof(strbuf)-len, "  %3d %11i %8lu %8lu %4d",
+          ap_cur->avg_power,
+          ap_cur->nb_hshake,
+          ap_cur->nb_bcn,
+          ap_cur->nb_data,
+          ap_cur->nb_dataps );
 	    }
 
 	    len = strlen(strbuf);

@@ -227,16 +227,18 @@ struct AP_info
     int beacon_logged;        /* We need 1 beacon per AP  */
     int dict_started;         /* 1 if dict attack started */
     int ssid_length;          /* length of ssid           */
+
     float gps_loc_min[5];     /* min gps coordinates      */
     float gps_loc_max[5];     /* max gps coordinates      */
     float gps_loc_best[5];    /* best gps coordinates     */
 
 
+    unsigned int nb_hshake;   /* total number of handshakes caught */
     unsigned long nb_bcn;     /* total number of beacons  */
     unsigned long nb_pkt;     /* total number of packets  */
     unsigned long nb_data;    /* number of  data packets  */
     unsigned long nb_data_old;/* number of data packets/sec*/
-    int nb_dataps;  /* number of data packets/sec*/
+    int nb_dataps;            /* number of data packets/sec*/
     struct timeval tv;        /* time for data per second */
 
     unsigned char bssid[6];   /* the access point's MAC   */
@@ -260,7 +262,7 @@ struct AP_info
     struct timeval ftimel;    /* time of last frame          */
     struct timeval ftimer;    /* time of restart             */
 
-    char *key;		      /* if wep-key found by dict */
+    char *key;	      	      /* if wep-key found by dict */
     int essid_stored;         /* essid stored in ivs file? */
 
     char decloak_detect;      /* run decloak detection? */
@@ -288,6 +290,9 @@ struct ST_info
     struct ST_info *next;    /* the next client in list   */
     struct AP_info *base;    /* AP this client belongs to */
     time_t tinit, tlast;     /* first and last time seen  */
+
+    int hshake_logged;       /* Whether handshake has been logged */
+
     unsigned long nb_pkt;    /* total number of packets   */
     unsigned char stmac[6];  /* the client's MAC address  */
     char *manuf;             /* the client's manufacturer */
