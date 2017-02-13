@@ -2608,6 +2608,8 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
   int gotsource, gotbssid;
   int remaining, bytes2use;
   int reasso, fixed, temp_channel;
+
+  // Index of SNAP in packet
   unsigned z;
 
   struct ST_info *st_cur = NULL;
@@ -2623,10 +2625,12 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
 
   pthread_mutex_unlock(&mx_cap);
 
+  // There are either three or four MAC addresses before SNAP
   z = ( ( packet[1] & 3 ) != 3 ) ? 24 : 30;
 
+  // SNAP is offset by two extra bytes in a QoS data frame
   if (packet[0] == 0x88)
-    z += 2; /* handle QoS field */
+    z += 2;
 
   if((unsigned)length < z)
   {
@@ -2841,8 +2845,9 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
       else
       {
         /* unencrypted data packet, nothing special, send it through dev_ti */
-        // TODO: also check for version 2 of WPA, which is x02\x01
-        if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x01\x01", 10) == 0)
+        // TODO: also check for version 2 of WPA, which is x02\x03
+        // if (opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x01\x01", 10) == 0)
+        if (opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x02\x01", 10) == 0)
         {
           /* got eapol start frame */
           if(opt.verbose)
@@ -2938,11 +2943,16 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
           return 0;
         }
 
-        if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x01\x03", 10) == 0)
+        // if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x01\x03", 10) == 0)
+        if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x02\x03", 10) == 0)
         {
+          printf("WPA 3\n");
           st_cur->wpa.eapol_size = ( packet[z + 8 + 2] << 8 ) + packet[z + 8 + 3] + 4;
 
-          if ((unsigned)length - z - 10 < st_cur->wpa.eapol_size  || st_cur->wpa.eapol_size == 0 ||
+          // TODO: support a QoS data packet for handshake packet #2, which corresponds
+          // with `- 100` below
+          // if ((unsigned)length - z - 10 < st_cur->wpa.eapol_size  || st_cur->wpa.eapol_size == 0 ||
+          if ((unsigned)length - z - 8 < st_cur->wpa.eapol_size  || st_cur->wpa.eapol_size == 0 ||
               st_cur->wpa.eapol_size > sizeof(st_cur->wpa.eapol))
           {
             // Ignore the packet trying to crash us.
@@ -2950,12 +2960,15 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
             return 1;
           }
 
-          /* got eapol frame num 2 */
+          // Copy s-nonce insto `st_cur->wpa.snonce`
           memcpy( st_cur->wpa.snonce, &packet[z + 8 + 17], 32 );
           st_cur->wpa.state |= 2;
 
+          // Copy the MIC of `packet` into `wpa.keymic`
           memcpy( st_cur->wpa.keymic, &packet[z + 8 + 81], 16 );
+          // Copy all the EAPOL bytes of `packet` into `wpa.eapol`
           memcpy( st_cur->wpa.eapol,  &packet[z + 8], st_cur->wpa.eapol_size );
+          // Reset MIC of `wpa.eapol` to zeros
           memset( st_cur->wpa.eapol + 81, 0, 16 );
           st_cur->wpa.state |= 4;
           st_cur->wpa.keyver = packet[z + 8 + 6] & 7;
