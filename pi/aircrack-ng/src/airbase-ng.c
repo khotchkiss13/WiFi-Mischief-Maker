@@ -2588,25 +2588,6 @@ int store_wpa_handshake(struct ST_info *st_cur)
   return 0;
 }
 
-struct AP_info
-{
-  struct AP_info *next;     /* next AP in linked list       */
-  unsigned char bssid[6];         /* access point MAC address     */
-  char essid[33];         /* access point identifier      */
-  unsigned char lanip[4];         /* IP address if unencrypted    */
-  unsigned char *ivbuf;         /* table holding WEP IV data    */
-  unsigned char **uiv_root;       /* IV uniqueness root struct    */
-  long ivbuf_size;       /* IV buffer allocated size     */
-  long nb_ivs;         /* total number of unique IVs   */
-  long nb_ivs_clean;       /* total number of unique IVs   */
-  long nb_ivs_vague;         /* total number of unique IVs   */
-  int crypt;           /* encryption algorithm         */
-  int eapol;           /* set if EAPOL is present      */
-  int target;           /* flag set if AP is a target   */
-  struct ST_info *st_1st;     /* linked list of stations      */
-  struct WPA_hdsk wpa;     /* valid WPA handshake data     */
-};
-
 int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int external)
 {
   unsigned char K[64];
@@ -2970,40 +2951,40 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
                 smac[0],smac[1],smac[2],smac[3],smac[4],smac[5]);
 
             unsigned int i;
-						printf("\n[*] anonce:");
-						for(i = 0; i < 32; i++)
-						{
-							if(i % 16 == 0) printf("\n    ");
-							printf("%02X ", st_cur->wpa.anonce[i]);
-						}
+            printf("\n[*] anonce:");
+            for(i = 0; i < 32; i++)
+            {
+              if(i % 16 == 0) printf("\n    ");
+              printf("%02X ", st_cur->wpa.anonce[i]);
+            }
 
-						printf("\n[*] snonce:");
-						for(i = 0; i < 32; i++)
-						{
-							if(i % 16 == 0) printf("\n    ");
-							printf("%02X ", st_cur->wpa.snonce[i]);
-						}
+            printf("\n[*] snonce:");
+            for(i = 0; i < 32; i++)
+            {
+              if(i % 16 == 0) printf("\n    ");
+              printf("%02X ", st_cur->wpa.snonce[i]);
+            }
 
-						printf("\n[*] Key MIC:\n   ");
-						for(i = 0; i < 16; i++)
-						{
-							printf(" %02X", st_cur->wpa.keymic[i]);
-						}
+            printf("\n[*] Key MIC:\n   ");
+            for(i = 0; i < 16; i++)
+            {
+              printf(" %02X", st_cur->wpa.keymic[i]);
+            }
 
-						printf("\n[*] eapol:");
-						for( i = 0; i < st_cur->wpa.eapol_size; i++)
-						{
-							if( i % 16 == 0 ) printf("\n    ");
-							printf("%02X ",st_cur->wpa.eapol[i]);
+            printf("\n[*] eapol:");
+            for( i = 0; i < st_cur->wpa.eapol_size; i++)
+            {
+              if( i % 16 == 0 ) printf("\n    ");
+              printf("%02X ",st_cur->wpa.eapol[i]);
 
-						}
+            }
 
-						printf("\n[*] pmk:");
+            printf("\n[*] pmk:");
             unsigned char pmk[40];
             calc_pmk("Petalway", apc->essid, pmk);
             printf("\n%s", apc->essid);
             for (i = 0; i < 32; i++) {
-							if( i % 16 == 0 ) printf("\n");
+              if( i % 16 == 0 ) printf("\n");
               printf(" %02X", pmk[i]);
             }
 
@@ -3020,7 +3001,7 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
             int mic_match = calc_ptk(&wpa_st_info, pmk);
             printf("\n[*] ptk:");
             for (i = 0; i < 80; i++) {
-							if( i % 16 == 0 ) printf("\n    ");
+              if( i % 16 == 0 ) printf("\n    ");
               printf(" %02X", wpa_st_info.ptk[i]);
             }
             printf("\nmic_match: %i", mic_match);

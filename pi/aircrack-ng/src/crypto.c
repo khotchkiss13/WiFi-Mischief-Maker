@@ -110,7 +110,7 @@ void rc4_setup( struct rc4_state *s, unsigned char *key,  int length )
 
     s->x = 0;
     s->y = 0;
-	m = s->m;
+  m = s->m;
 
     for( i = 0; i < 256; i++ )
     {
@@ -178,263 +178,223 @@ int decrypt_wep( unsigned char *data, int len, unsigned char *key, int keylen )
 // bytes for the PMK
 void calc_pmk( char *key, char *essid_pre, unsigned char pmk[40] )
 {
-	int i, j, slen;
-	unsigned char buffer[65];
-	char essid[33+4];
-	SHA_CTX ctx_ipad;
-	SHA_CTX ctx_opad;
-	SHA_CTX sha1_ctx;
+  int i, j, slen;
+  unsigned char buffer[65];
+  char essid[33+4];
+  SHA_CTX ctx_ipad;
+  SHA_CTX ctx_opad;
+  SHA_CTX sha1_ctx;
 
-	memset(essid, 0, sizeof(essid));
-	memcpy(essid, essid_pre, strlen(essid_pre));
-	slen = strlen( essid ) + 4;
+  memset(essid, 0, sizeof(essid));
+  memcpy(essid, essid_pre, strlen(essid_pre));
+  slen = strlen( essid ) + 4;
 
-	/* setup the inner and outer contexts */
+  /* setup the inner and outer contexts */
 
-	memset( buffer, 0, sizeof( buffer ) );
-	strncpy( (char *) buffer, key, sizeof( buffer ) - 1 );
+  memset( buffer, 0, sizeof( buffer ) );
+  strncpy( (char *) buffer, key, sizeof( buffer ) - 1 );
 
-	for( i = 0; i < 64; i++ )
-		buffer[i] ^= 0x36;
+  for( i = 0; i < 64; i++ )
+    buffer[i] ^= 0x36;
 
-	SHA1_Init( &ctx_ipad );
-	SHA1_Update( &ctx_ipad, buffer, 64 );
+  SHA1_Init( &ctx_ipad );
+  SHA1_Update( &ctx_ipad, buffer, 64 );
 
-	for( i = 0; i < 64; i++ )
-		buffer[i] ^= 0x6A;
+  for( i = 0; i < 64; i++ )
+    buffer[i] ^= 0x6A;
 
-	SHA1_Init( &ctx_opad );
-	SHA1_Update( &ctx_opad, buffer, 64 );
+  SHA1_Init( &ctx_opad );
+  SHA1_Update( &ctx_opad, buffer, 64 );
 
-	/* iterate HMAC-SHA1 over itself 8192 times */
+  /* iterate HMAC-SHA1 over itself 8192 times */
 
-	essid[slen - 1] = '\1';
-	HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, pmk, NULL);
-	memcpy( buffer, pmk, 20 );
+  essid[slen - 1] = '\1';
+  HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, pmk, NULL);
+  memcpy( buffer, pmk, 20 );
 
-	for( i = 1; i < 4096; i++ )
-	{
-		memcpy( &sha1_ctx, &ctx_ipad, sizeof( sha1_ctx ) );
-		SHA1_Update( &sha1_ctx, buffer, 20 );
-		SHA1_Final( buffer, &sha1_ctx );
+  for( i = 1; i < 4096; i++ )
+  {
+    memcpy( &sha1_ctx, &ctx_ipad, sizeof( sha1_ctx ) );
+    SHA1_Update( &sha1_ctx, buffer, 20 );
+    SHA1_Final( buffer, &sha1_ctx );
 
-		memcpy( &sha1_ctx, &ctx_opad, sizeof( sha1_ctx ) );
-		SHA1_Update( &sha1_ctx, buffer, 20 );
-		SHA1_Final( buffer, &sha1_ctx );
+    memcpy( &sha1_ctx, &ctx_opad, sizeof( sha1_ctx ) );
+    SHA1_Update( &sha1_ctx, buffer, 20 );
+    SHA1_Final( buffer, &sha1_ctx );
 
-		for( j = 0; j < 20; j++ )
-			pmk[j] ^= buffer[j];
-	}
+    for( j = 0; j < 20; j++ )
+      pmk[j] ^= buffer[j];
+  }
 
-	essid[slen - 1] = '\2';
-	HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, pmk+20, NULL);
-	memcpy( buffer, pmk + 20, 20 );
+  essid[slen - 1] = '\2';
+  HMAC(EVP_sha1(), (unsigned char *)key, strlen(key), (unsigned char*)essid, slen, pmk+20, NULL);
+  memcpy( buffer, pmk + 20, 20 );
 
-	for( i = 1; i < 4096; i++ )
-	{
-		memcpy( &sha1_ctx, &ctx_ipad, sizeof( sha1_ctx ) );
-		SHA1_Update( &sha1_ctx, buffer, 20 );
-		SHA1_Final( buffer, &sha1_ctx );
+  for( i = 1; i < 4096; i++ )
+  {
+    memcpy( &sha1_ctx, &ctx_ipad, sizeof( sha1_ctx ) );
+    SHA1_Update( &sha1_ctx, buffer, 20 );
+    SHA1_Final( buffer, &sha1_ctx );
 
-		memcpy( &sha1_ctx, &ctx_opad, sizeof( sha1_ctx ) );
-		SHA1_Update( &sha1_ctx, buffer, 20 );
-		SHA1_Final( buffer, &sha1_ctx );
+    memcpy( &sha1_ctx, &ctx_opad, sizeof( sha1_ctx ) );
+    SHA1_Update( &sha1_ctx, buffer, 20 );
+    SHA1_Final( buffer, &sha1_ctx );
 
-		for( j = 0; j < 20; j++ )
-			pmk[j + 20] ^= buffer[j];
-	}
+    for( j = 0; j < 20; j++ )
+      pmk[j + 20] ^= buffer[j];
+  }
 }
-
-// void calc_ptk (struct WPA_hdsk *wpa, unsigned char bssid[6], unsigned char pmk[32], unsigned char ptk[80]) {
-// 	int i;
-// 	unsigned char pke[100];
-// 	HMAC_CTX ctx;
-//
-// 	memcpy( pke, "Pairwise key expansion", 23 );
-//
-// 	if( memcmp( wpa->stmac, bssid, 6 ) < 0 )
-// 	{
-// 		memcpy( pke + 23, wpa->stmac, 6 );
-// 		memcpy( pke + 29, bssid, 6 );
-// 	}
-// 	else
-// 	{
-// 		memcpy( pke + 23, bssid, 6 );
-// 		memcpy( pke + 29, wpa->stmac, 6 );
-// 	}
-//
-// 	if( memcmp( wpa->snonce, wpa->anonce, 32 ) < 0 )
-// 	{
-// 		memcpy( pke + 35, wpa->snonce, 32 );
-// 		memcpy( pke + 67, wpa->anonce, 32 );
-// 	}
-// 	else
-// 	{
-// 		memcpy( pke + 35, wpa->anonce, 32 );
-// 		memcpy( pke + 67, wpa->snonce, 32 );
-// 	}
-//
-// 	HMAC_CTX_init(&ctx);
-// 	HMAC_Init_ex(&ctx, pmk, 32, EVP_sha1(), NULL);
-// 	for(i = 0; i < 4; i++ )
-// 	{
-// 		pke[99] = i;
-// 		//HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
-// 		HMAC_Init_ex(&ctx, 0, 0, 0, 0);
-// 		HMAC_Update(&ctx, pke, 100);
-// 		HMAC_Final(&ctx, ptk + i*20, NULL);
-// 	}
-// 	HMAC_CTX_cleanup(&ctx);
-// }
 
 void calc_mic_custom (struct WPA_hdsk *wpa,
                       unsigned char bssid[8],
                       unsigned char pmk[32], unsigned char ptk[80], unsigned char mic[20]) {
-	int i;
-	unsigned char pke[100];
-	#if defined(USE_GCRYPT) || OPENSSL_VERSION_NUMBER < 0x10100000L
-		#define HMAC_USE_NO_PTR
-	#endif
+  int i;
+  unsigned char pke[100];
+  #if defined(USE_GCRYPT) || OPENSSL_VERSION_NUMBER < 0x10100000L
+    #define HMAC_USE_NO_PTR
+  #endif
 
-	#ifdef HMAC_USE_NO_PTR
-	HMAC_CTX ctx;
-	#else
-	HMAC_CTX * ctx;
-	#endif
+  #ifdef HMAC_USE_NO_PTR
+  HMAC_CTX ctx;
+  #else
+  HMAC_CTX * ctx;
+  #endif
 
-	memcpy( pke, "Pairwise key expansion", 23 );
+  memcpy( pke, "Pairwise key expansion", 23 );
 
-	if( memcmp( wpa->stmac, bssid, 6 ) < 0 )
-	{
-		memcpy( pke + 23, wpa->stmac, 6 );
-		memcpy( pke + 29, bssid, 6 );
-	}
-	else
-	{
-		memcpy( pke + 23, bssid, 6 );
-		memcpy( pke + 29, wpa->stmac, 6 );
-	}
+  if( memcmp( wpa->stmac, bssid, 6 ) < 0 )
+  {
+    memcpy( pke + 23, wpa->stmac, 6 );
+    memcpy( pke + 29, bssid, 6 );
+  }
+  else
+  {
+    memcpy( pke + 23, bssid, 6 );
+    memcpy( pke + 29, wpa->stmac, 6 );
+  }
 
-	if( memcmp( wpa->snonce, wpa->anonce, 32 ) < 0 )
-	{
-		memcpy( pke + 35, wpa->snonce, 32 );
-		memcpy( pke + 67, wpa->anonce, 32 );
-	}
-	else
-	{
-		memcpy( pke + 35, wpa->anonce, 32 );
-		memcpy( pke + 67, wpa->snonce, 32 );
-	}
+  if( memcmp( wpa->snonce, wpa->anonce, 32 ) < 0 )
+  {
+    memcpy( pke + 35, wpa->snonce, 32 );
+    memcpy( pke + 67, wpa->anonce, 32 );
+  }
+  else
+  {
+    memcpy( pke + 35, wpa->anonce, 32 );
+    memcpy( pke + 67, wpa->snonce, 32 );
+  }
 
-	#ifdef HMAC_USE_NO_PTR
-	HMAC_CTX_init(&ctx);
-	HMAC_Init_ex(&ctx, pmk, 32, EVP_sha1(), NULL);
-	for(i = 0; i < 4; i++ )
-	{
-		pke[99] = i;
-		//HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
-		HMAC_Init_ex(&ctx, 0, 0, 0, 0);
-		HMAC_Update(&ctx, pke, 100);
-		HMAC_Final(&ctx, ptk + i*20, NULL);
-	}
-	HMAC_CTX_cleanup(&ctx);
-	#else
-	ctx = HMAC_CTX_new();
-	HMAC_Init_ex(ctx, pmk, 32, EVP_sha1(), NULL);
-	for(i = 0; i < 4; i++ )
-	{
-		pke[99] = i;
-		//HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
-		HMAC_Init_ex(ctx, 0, 0, 0, 0);
-		HMAC_Update(ctx, pke, 100);
-		HMAC_Final(ctx, ptk + i*20, NULL);
-	}
-	HMAC_CTX_free(ctx);
-	#endif
-	#undef HMAC_USE_NO_PTR
+  #ifdef HMAC_USE_NO_PTR
+  HMAC_CTX_init(&ctx);
+  HMAC_Init_ex(&ctx, pmk, 32, EVP_sha1(), NULL);
+  for(i = 0; i < 4; i++ )
+  {
+    pke[99] = i;
+    //HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
+    HMAC_Init_ex(&ctx, 0, 0, 0, 0);
+    HMAC_Update(&ctx, pke, 100);
+    HMAC_Final(&ctx, ptk + i*20, NULL);
+  }
+  HMAC_CTX_cleanup(&ctx);
+  #else
+  ctx = HMAC_CTX_new();
+  HMAC_Init_ex(ctx, pmk, 32, EVP_sha1(), NULL);
+  for(i = 0; i < 4; i++ )
+  {
+    pke[99] = i;
+    //HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
+    HMAC_Init_ex(ctx, 0, 0, 0, 0);
+    HMAC_Update(ctx, pke, 100);
+    HMAC_Final(ctx, ptk + i*20, NULL);
+  }
+  HMAC_CTX_free(ctx);
+  #endif
+  #undef HMAC_USE_NO_PTR
 
-	if( wpa->keyver == 1 )
-	{
-		HMAC(EVP_md5(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL);
-	}
-	else
-	{
-		HMAC(EVP_sha1(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL);
-	}
+  if( wpa->keyver == 1 )
+  {
+    printf("md5\n");
+    HMAC(EVP_md5(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL);
+  }
+  else
+  {
+    printf("sha1\n");
+    HMAC(EVP_sha1(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL);
+  }
 }
 
 void calc_mic (struct AP_info *ap, unsigned char pmk[32], unsigned char ptk[80], unsigned char mic[20]) {
-	int i;
-	unsigned char pke[100];
-	#if defined(USE_GCRYPT) || OPENSSL_VERSION_NUMBER < 0x10100000L
-		#define HMAC_USE_NO_PTR
-	#endif
+  int i;
+  unsigned char pke[100];
+  #if defined(USE_GCRYPT) || OPENSSL_VERSION_NUMBER < 0x10100000L
+    #define HMAC_USE_NO_PTR
+  #endif
 
-	#ifdef HMAC_USE_NO_PTR
-	HMAC_CTX ctx;
-	#else
-	HMAC_CTX * ctx;
-	#endif
+  #ifdef HMAC_USE_NO_PTR
+  HMAC_CTX ctx;
+  #else
+  HMAC_CTX * ctx;
+  #endif
 
-	memcpy( pke, "Pairwise key expansion", 23 );
+  memcpy( pke, "Pairwise key expansion", 23 );
 
-	if( memcmp( ap->wpa.stmac, ap->bssid, 6 ) < 0 )
-	{
-		memcpy( pke + 23, ap->wpa.stmac, 6 );
-		memcpy( pke + 29, ap->bssid, 6 );
-	}
-	else
-	{
-		memcpy( pke + 23, ap->bssid, 6 );
-		memcpy( pke + 29, ap->wpa.stmac, 6 );
-	}
+  if( memcmp( ap->wpa.stmac, ap->bssid, 6 ) < 0 )
+  {
+    memcpy( pke + 23, ap->wpa.stmac, 6 );
+    memcpy( pke + 29, ap->bssid, 6 );
+  }
+  else
+  {
+    memcpy( pke + 23, ap->bssid, 6 );
+    memcpy( pke + 29, ap->wpa.stmac, 6 );
+  }
 
-	if( memcmp( ap->wpa.snonce, ap->wpa.anonce, 32 ) < 0 )
-	{
-		memcpy( pke + 35, ap->wpa.snonce, 32 );
-		memcpy( pke + 67, ap->wpa.anonce, 32 );
-	}
-	else
-	{
-		memcpy( pke + 35, ap->wpa.anonce, 32 );
-		memcpy( pke + 67, ap->wpa.snonce, 32 );
-	}
+  if( memcmp( ap->wpa.snonce, ap->wpa.anonce, 32 ) < 0 )
+  {
+    memcpy( pke + 35, ap->wpa.snonce, 32 );
+    memcpy( pke + 67, ap->wpa.anonce, 32 );
+  }
+  else
+  {
+    memcpy( pke + 35, ap->wpa.anonce, 32 );
+    memcpy( pke + 67, ap->wpa.snonce, 32 );
+  }
 
-	#ifdef HMAC_USE_NO_PTR
-	HMAC_CTX_init(&ctx);
-	HMAC_Init_ex(&ctx, pmk, 32, EVP_sha1(), NULL);
-	for(i = 0; i < 4; i++ )
-	{
-		pke[99] = i;
-		//HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
-		HMAC_Init_ex(&ctx, 0, 0, 0, 0);
-		HMAC_Update(&ctx, pke, 100);
-		HMAC_Final(&ctx, ptk + i*20, NULL);
-	}
-	HMAC_CTX_cleanup(&ctx);
-	#else
-	ctx = HMAC_CTX_new();
-	HMAC_Init_ex(ctx, pmk, 32, EVP_sha1(), NULL);
-	for(i = 0; i < 4; i++ )
-	{
-		pke[99] = i;
-		//HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
-		HMAC_Init_ex(ctx, 0, 0, 0, 0);
-		HMAC_Update(ctx, pke, 100);
-		HMAC_Final(ctx, ptk + i*20, NULL);
-	}
-	HMAC_CTX_free(ctx);
-	#endif
-	#undef HMAC_USE_NO_PTR
+  #ifdef HMAC_USE_NO_PTR
+  HMAC_CTX_init(&ctx);
+  HMAC_Init_ex(&ctx, pmk, 32, EVP_sha1(), NULL);
+  for(i = 0; i < 4; i++ )
+  {
+    pke[99] = i;
+    //HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
+    HMAC_Init_ex(&ctx, 0, 0, 0, 0);
+    HMAC_Update(&ctx, pke, 100);
+    HMAC_Final(&ctx, ptk + i*20, NULL);
+  }
+  HMAC_CTX_cleanup(&ctx);
+  #else
+  ctx = HMAC_CTX_new();
+  HMAC_Init_ex(ctx, pmk, 32, EVP_sha1(), NULL);
+  for(i = 0; i < 4; i++ )
+  {
+    pke[99] = i;
+    //HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
+    HMAC_Init_ex(ctx, 0, 0, 0, 0);
+    HMAC_Update(ctx, pke, 100);
+    HMAC_Final(ctx, ptk + i*20, NULL);
+  }
+  HMAC_CTX_free(ctx);
+  #endif
+  #undef HMAC_USE_NO_PTR
 
-	if( ap->wpa.keyver == 1 )
-	{
-		HMAC(EVP_md5(), ptk, 16, ap->wpa.eapol, ap->wpa.eapol_size, mic, NULL);
-	}
-	else
-	{
-		HMAC(EVP_sha1(), ptk, 16, ap->wpa.eapol, ap->wpa.eapol_size, mic, NULL);
-	}
+  if( ap->wpa.keyver == 1 )
+  {
+    HMAC(EVP_md5(), ptk, 16, ap->wpa.eapol, ap->wpa.eapol_size, mic, NULL);
+  }
+  else
+  {
+    HMAC(EVP_sha1(), ptk, 16, ap->wpa.eapol, ap->wpa.eapol_size, mic, NULL);
+  }
 }
 
 unsigned long calc_crc( unsigned char * buf, int len)
@@ -555,14 +515,14 @@ int is_arp(void *wh, int len)
 
 int is_wlccp(void *wh, int len)
 {
-	int wlccpsize = 58;
+  int wlccpsize = 58;
 
-	if(wh) {}
+  if(wh) {}
 
-	if (len == wlccpsize)
-		return 1;
+  if (len == wlccpsize)
+    return 1;
 
-	return 0;
+  return 0;
 }
 
 int is_qos_arp_tkip(void *wh, int len)
@@ -588,7 +548,7 @@ int is_qos_arp_tkip(void *wh, int len)
 int is_spantree(void *wh)
 {
         if ( wh != NULL &&
-	     (memcmp( wh +  4, SPANTREE, 6 ) == 0 ||
+       (memcmp( wh +  4, SPANTREE, 6 ) == 0 ||
               memcmp( wh + 16, SPANTREE, 6 ) == 0 ))
             return 1;
 
@@ -638,7 +598,7 @@ int known_clear(void *clear, int *clen, int *weight, unsigned char *wh, int len)
 
             len = ptr - ((unsigned char*)clear);
             *clen = len;
-	    if (weight)
+      if (weight)
                 weight[0] = 256;
             return 1;
 
@@ -661,7 +621,7 @@ int known_clear(void *clear, int *clen, int *weight, unsigned char *wh, int len)
 
             len = ptr - ((unsigned char*)clear);
             *clen = len;
-	    if (weight)
+      if (weight)
                 weight[0] = 256;
             return 1;
 
@@ -674,7 +634,7 @@ int known_clear(void *clear, int *clen, int *weight, unsigned char *wh, int len)
 
             len = ptr - ((unsigned char*)clear);
             *clen = len;
-	    if (weight)
+      if (weight)
                 weight[0] = 256;
             return 1;
         }
@@ -686,7 +646,7 @@ int known_clear(void *clear, int *clen, int *weight, unsigned char *wh, int len)
 
             len = ptr - ((unsigned char*)clear);
             *clen = len;
-	    if (weight)
+      if (weight)
                 weight[0] = 256;
             return 1;
         }
@@ -709,15 +669,15 @@ int known_clear(void *clear, int *clen, int *weight, unsigned char *wh, int len)
                 memcpy(ptr, &iplen, len);
                 ptr += len;
 
-		/* no guesswork */
-		if (!weight) {
-			*clen = ptr - ((unsigned char*)clear);
-			return 1;
-		}
+    /* no guesswork */
+    if (!weight) {
+      *clen = ptr - ((unsigned char*)clear);
+      return 1;
+    }
 #if 1
-		/* setting IP ID 0 is ok, as we
+    /* setting IP ID 0 is ok, as we
                  * bruteforce it later
-		 */
+     */
                 //ID=0
                 len=2;
                 memcpy(ptr, "\x00\x00", len);
@@ -736,7 +696,7 @@ int known_clear(void *clear, int *clen, int *weight, unsigned char *wh, int len)
                 memcpy(clear+32+14, "\x00\x00", 2); //ip flags=none
 
                 num=2;
-		assert(weight);
+    assert(weight);
                 weight[0] = 220;
                 weight[1] = 36;
 
