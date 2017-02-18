@@ -285,6 +285,82 @@ void calc_pmk( char *key, char *essid_pre, unsigned char pmk[40] )
 // 	HMAC_CTX_cleanup(&ctx);
 // }
 
+void calc_mic_custom (struct WPA_hdsk *wpa,
+                      unsigned char bssid[8],
+                      unsigned char pmk[32], unsigned char ptk[80], unsigned char mic[20]) {
+	int i;
+	unsigned char pke[100];
+	#if defined(USE_GCRYPT) || OPENSSL_VERSION_NUMBER < 0x10100000L
+		#define HMAC_USE_NO_PTR
+	#endif
+
+	#ifdef HMAC_USE_NO_PTR
+	HMAC_CTX ctx;
+	#else
+	HMAC_CTX * ctx;
+	#endif
+
+	memcpy( pke, "Pairwise key expansion", 23 );
+
+	if( memcmp( wpa->stmac, bssid, 6 ) < 0 )
+	{
+		memcpy( pke + 23, wpa->stmac, 6 );
+		memcpy( pke + 29, bssid, 6 );
+	}
+	else
+	{
+		memcpy( pke + 23, bssid, 6 );
+		memcpy( pke + 29, wpa->stmac, 6 );
+	}
+
+	if( memcmp( wpa->snonce, wpa->anonce, 32 ) < 0 )
+	{
+		memcpy( pke + 35, wpa->snonce, 32 );
+		memcpy( pke + 67, wpa->anonce, 32 );
+	}
+	else
+	{
+		memcpy( pke + 35, wpa->anonce, 32 );
+		memcpy( pke + 67, wpa->snonce, 32 );
+	}
+
+	#ifdef HMAC_USE_NO_PTR
+	HMAC_CTX_init(&ctx);
+	HMAC_Init_ex(&ctx, pmk, 32, EVP_sha1(), NULL);
+	for(i = 0; i < 4; i++ )
+	{
+		pke[99] = i;
+		//HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
+		HMAC_Init_ex(&ctx, 0, 0, 0, 0);
+		HMAC_Update(&ctx, pke, 100);
+		HMAC_Final(&ctx, ptk + i*20, NULL);
+	}
+	HMAC_CTX_cleanup(&ctx);
+	#else
+	ctx = HMAC_CTX_new();
+	HMAC_Init_ex(ctx, pmk, 32, EVP_sha1(), NULL);
+	for(i = 0; i < 4; i++ )
+	{
+		pke[99] = i;
+		//HMAC(EVP_sha1(), values[0], 32, pke, 100, ptk + i * 20, NULL);
+		HMAC_Init_ex(ctx, 0, 0, 0, 0);
+		HMAC_Update(ctx, pke, 100);
+		HMAC_Final(ctx, ptk + i*20, NULL);
+	}
+	HMAC_CTX_free(ctx);
+	#endif
+	#undef HMAC_USE_NO_PTR
+
+	if( wpa->keyver == 1 )
+	{
+		HMAC(EVP_md5(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL);
+	}
+	else
+	{
+		HMAC(EVP_sha1(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL);
+	}
+}
+
 void calc_mic (struct AP_info *ap, unsigned char pmk[32], unsigned char ptk[80], unsigned char mic[20]) {
 	int i;
 	unsigned char pke[100];
@@ -357,7 +433,6 @@ void calc_mic (struct AP_info *ap, unsigned char pmk[32], unsigned char ptk[80],
 	{
 		HMAC(EVP_sha1(), ptk, 16, ap->wpa.eapol, ap->wpa.eapol_size, mic, NULL);
 	}
-
 }
 
 unsigned long calc_crc( unsigned char * buf, int len)
