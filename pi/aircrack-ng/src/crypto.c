@@ -172,8 +172,10 @@ int decrypt_wep( unsigned char *data, int len, unsigned char *key, int keylen )
 }
 */
 
-/* derive the PMK from the passphrase and the essid */
-
+// Computes a PMK from passphrase `key` and essid `essid_pre`
+// and stores it in given `pmk` array - even though the `pmk`
+// array is of length 40 bytes, you'll generally only use 32
+// bytes for the PMK
 void calc_pmk( char *key, char *essid_pre, unsigned char pmk[40] )
 {
 	int i, j, slen;
