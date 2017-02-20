@@ -2667,10 +2667,23 @@ struct ST_info *find_or_add_client(unsigned char smac[6])
   return st_cur;
 }
 
+void print_G()
+{
+  unsigned int i;
+  printf("Payload length: %i\n", G.payload_length);
+  printf("Payload\n");
+  for (i = 0; i < G.payload_length; i += 1)
+  {
+    if (i % 16 == 0)
+      printf("\n");
+    printf("%02X ", G.payload[i]);
+  }
+}
+
 int send_association_response(unsigned char *packet)
 {
-  int reasso = 0;
-  int fixed = 0;
+  int reasso;
+  int tags_offset;
   int len, i;
 
   char essid[256];
@@ -2688,19 +2701,21 @@ int send_association_response(unsigned char *packet)
   if (packet[0] == 0x00)
   {
     reasso = 0;
-    fixed = 4;
+    tags_offset = z + 4;
   }
   else
   {
     reasso = 1;
-    fixed = 10;
+    tags_offset = z + 10;
   }
 
   G.st_cur->wep = (packet[z] & 0x10) >> 4;
+  
+  print_G();
 
   // `len` is a really function-global variable used for various
-  // seemingly unrelated functions - here is stores length of an essid
-  tag = parse_tags(packet+z+fixed, 0, G.payload_length-z-fixed, &len);
+  // seemingly unrelated functions - here it stores length of an essid
+  tag = parse_tags(packet + tags_offset, 0, G.payload_length - tags_offset, &len);
   if (tag != NULL && tag[0] >= 32 && len < 256)
   {
     memcpy(essid, tag, len);
@@ -2713,19 +2728,17 @@ int send_association_response(unsigned char *packet)
   G.st_cur->wpatype = 0;
   G.st_cur->wpahash = 0;
 
-  tag = parse_tags(packet+z+fixed, 0xDD, G.payload_length-z-fixed, &len);
+  tag = parse_tags(packet + tags_offset, 0xDD, G.payload_length - tags_offset, &len);
   while(tag != NULL)
   {
-    printf("Found WPA TAG\n");
     wpa_client(G.st_cur, tag-2, len+2);
     tag += (tag-2)[1]+2;
     tag = parse_tags(tag-2, 0xDD, G.payload_length-(tag-packet)+2, &len);
   }
 
-  tag = parse_tags(packet+z+fixed, 0x30, G.payload_length-z-fixed, &len);
+  tag = parse_tags(packet + tags_offset, 0x30, G.payload_length - tags_offset, &len);
   while(tag != NULL)
   {
-    printf("Found WPA2 TAG\n");
     wpa_client(G.st_cur, tag-2, len+2);
     tag += (tag-2)[1]+2;
     tag = parse_tags(tag-2, 0x30, G.payload_length-(tag-packet)+2, &len);
@@ -2740,17 +2753,20 @@ int send_association_response(unsigned char *packet)
   memcpy(G.payload + 10, G.dest_mac, 6);
 
   //store the tagged parameters and insert the fixed ones
-  buffer = (unsigned char*) malloc(G.payload_length-z-fixed);
-  memcpy(buffer, G.payload+z+fixed, G.payload_length-z-fixed);
+  buffer = (unsigned char*) malloc(G.payload_length - tags_offset);
+  memcpy(buffer, G.payload + tags_offset, G.payload_length - tags_offset);
 
+  // Indicate association success
   G.payload[z+2] = 0x00;
   G.payload[z+3] = 0x00;
+  // Set association ID to 0x01C0?
   G.payload[z+4] = 0x01;
   G.payload[z+5] = 0xC0;
 
-  memcpy(G.payload+z+6, buffer, G.payload_length-z-fixed);
-  // TODO: why do we mutate length here?
-  G.payload_length +=(6-fixed);
+  // Copy all tags in request to response payload,
+  // `G.payload + z + 6` is where tags should begin
+  memcpy(G.payload+z+6, buffer, G.payload_length - tags_offset);
+  G.payload_length += (6-(tags_offset - z));
   free(buffer);
   buffer = NULL;
 
@@ -2767,7 +2783,7 @@ int send_association_response(unsigned char *packet)
       G.source_mac[0],
       G.source_mac[1],
       G.source_mac[2],
-      G.source_mac[3],
+      G.source_mac[3],                                   
       G.source_mac[4],
       G.source_mac[5],
       (reasso==0)?"":"re");
@@ -2798,10 +2814,10 @@ int send_association_response(unsigned char *packet)
     printf("\n");
   }
 
+  // Copy parsed essid into `G.st_cur` and reset `essid`
   memset(G.st_cur->essid, 0, 256);
   memcpy(G.st_cur->essid, essid, 255);
   G.st_cur->essid_length = strlen(essid);
-
   memset(essid, 0, 256);
 
 
