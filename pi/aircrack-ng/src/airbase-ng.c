@@ -225,7 +225,7 @@ struct globals
 
 struct options
 {
-  struct ST_info *st_1st, *st_end;
+  struct ST_info *st_head, *st_tail;
 
   unsigned char r_bssid[6];
   unsigned char r_dmac[6];
@@ -383,6 +383,7 @@ struct ST_info
   int missed;              /* number of missed packets  */
   unsigned int lastseq;    /* last seen sequnce number  */
   struct WPA_hdsk wpa;     /* WPA handshake data        */
+  int valid_anonce;        /* indicates anonce exists   */
   int wpatype;             /* 1=wpa1 2=wpa2             */
   int wpahash;             /* 1=md5(tkip) 2=sha1(ccmp)  */
   int wep;                 /* capability encryption bit */
@@ -2600,7 +2601,7 @@ int store_wpa_handshake(struct ST_info *st_cur)
 
 struct ST_info *find_or_add_client(unsigned char smac[6])
 {
-  struct ST_info *st_cur = opt.st_1st;
+  struct ST_info *st_cur = opt.st_head;
   struct ST_info *st_prv = NULL;
 
   while( st_cur != NULL )
@@ -2625,8 +2626,8 @@ struct ST_info *find_or_add_client(unsigned char smac[6])
 
     memset( st_cur, 0, sizeof( struct ST_info ) );
 
-    if( opt.st_1st == NULL )
-      opt.st_1st = st_cur;
+    if( opt.st_head == NULL )
+      opt.st_head = st_cur;
     else
       st_prv->next = st_cur;
 
@@ -2643,6 +2644,7 @@ struct ST_info *find_or_add_client(unsigned char smac[6])
 
     st_cur->probe_index = -1;
     st_cur->missed  = 0;
+    st_cur->valid_anonce = 0;
     st_cur->lastseq = 0;
     gettimeofday( &(st_cur->ftimer), NULL);
 
@@ -2661,7 +2663,7 @@ struct ST_info *find_or_add_client(unsigned char smac[6])
     st_cur->wpahash = 0;
     st_cur->wep = 0;
 
-    opt.st_end = st_cur;
+    opt.st_tail = st_cur;
   }
   
   return st_cur;
@@ -2680,11 +2682,121 @@ void print_G()
   }
 }
 
+int initiate_handshake()
+{
+  int i;
+  int len;
+
+  printf("%s\n", "Sending 1st handshake packet");
+  G.st_cur->wpa.state = 0;
+
+  if (opt.use_fixed_nonce) {
+    memcpy(G.st_cur->wpa.anonce, opt.fixed_nonce, 32);
+  } else {
+    // TODO: don't hardcode the anonce for now
+    for(i=0; i<32; i++)
+      // st_cur->wpa.anonce[i] = rand()&0xFF;
+      G.st_cur->wpa.anonce[i] = 0x55;
+  }
+
+  G.st_cur->wpa.state |= 1;
+
+  /* build first eapol frame */
+  // x08 = data frame or x88 = QoS data frame
+  // x02 = frame fromDS (toDS: 0, fromDS: 1)
+  // xd500 = frame duration
+  memcpy(h80211, "\x88\x02\xd5\x00", 4);
+  len = 4;
+
+  memcpy(h80211+len, G.source_mac, 6);
+  len += 6;
+  memcpy(h80211+len, G.bssid, 6);
+  len += 6;
+  memcpy(h80211+len, G.bssid, 6);
+  len += 6;
+
+  // Sequence and fragment numbers
+  h80211[len] = 0x00;
+  h80211[len+1] = 0x00;
+  len += 2;
+
+  // QoS = uncomment on x88 (QoS data frame) use
+  h80211[len] = 0x06;
+  h80211[len+1] = 0x00;
+  len += 2;
+
+  // LLC and SNAP
+  memcpy(h80211+len, "\xAA\xAA\x03\x00\x00\x00\x88\x8E", 8);
+  len += 8;
+
+  // EAPOL
+  memset(h80211+len, 0, 99);
+  h80211[len]    = 0x02;//version
+  h80211[len+1]  = 0x03;//type
+  h80211[len+2]  = 0x00;
+  h80211[len+3]  = 0x5F;//len
+  if(opt.wpa1type)
+    h80211[len+4]  = 0xFE; //WPA1
+
+  if(opt.wpa2type)
+    h80211[len+4]  = 0x02; //WPA2
+
+  if(!opt.wpa1type && !opt.wpa2type)
+  {
+    if(G.st_cur->wpatype == 1) //WPA1
+      h80211[len+4]  = 0xFE; //WPA1
+    else
+      h80211[len+4]  = 0x02; //WPA2
+  }
+
+  // Key information
+  if(opt.sendeapol >= 1 && opt.sendeapol <= 2) //specified
+  {
+    if(opt.sendeapol == 1) //MD5
+    {
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x89;
+    }
+    else //SHA1
+    {
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x8a;
+    }
+  }
+  else //from asso
+  {
+    if(G.st_cur->wpahash == 1) //MD5
+    {
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x89;
+    }
+    else if(G.st_cur->wpahash == 2) //SHA1
+    {
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x8a;
+    }
+  }
+
+  // Key length = 0x0020 => 16 bytes
+  h80211[len+7] = 0x00;
+  h80211[len+8] = 0x10;
+
+  // Nonce
+  memset(h80211+len+9, 0, 90);
+  memcpy(h80211+len+17, G.st_cur->wpa.anonce, 32);
+
+  len+=99;
+
+  send_packet(h80211, len);
+  return 0;
+}
+
 int send_association_response(unsigned char *packet)
 {
   int reasso;
   int tags_offset;
-  int len, i;
+
+  int len;
 
   char essid[256];
 
@@ -2820,112 +2932,9 @@ int send_association_response(unsigned char *packet)
   G.st_cur->essid_length = strlen(essid);
   memset(essid, 0, 256);
 
-
   // Send 1st handshake packet
   if( (opt.sendeapol && ( opt.wpa1type || opt.wpa2type ) ) || (G.st_cur->wpatype && G.st_cur->wpahash) )
-  {
-    printf("%s\n", "Sending 1st handshake packet");
-    G.st_cur->wpa.state = 0;
-
-    if (opt.use_fixed_nonce) {
-      memcpy(G.st_cur->wpa.anonce, opt.fixed_nonce, 32);
-    } else {
-      // TODO: don't hardcode the anonce for now
-      for(i=0; i<32; i++)
-        // st_cur->wpa.anonce[i] = rand()&0xFF;
-        G.st_cur->wpa.anonce[i] = 0x55;
-    }
-
-    G.st_cur->wpa.state |= 1;
-
-    /* build first eapol frame */
-    // x08 = data frame or x88 = QoS data frame
-    // x02 = frame fromDS (toDS: 0, fromDS: 1)
-    // xd500 = frame duration
-    memcpy(h80211, "\x88\x02\xd5\x00", 4);
-    len = 4;
-
-    memcpy(h80211+len, G.source_mac, 6);
-    len += 6;
-    memcpy(h80211+len, G.bssid, 6);
-    len += 6;
-    memcpy(h80211+len, G.bssid, 6);
-    len += 6;
-
-    // Sequence and fragment numbers
-    h80211[len] = 0x00;
-    h80211[len+1] = 0x00;
-    len += 2;
-
-    // QoS = uncomment on x88 (QoS data frame) use
-    h80211[len] = 0x06;
-    h80211[len+1] = 0x00;
-    len += 2;
-
-    // LLC and SNAP
-    memcpy(h80211+len, "\xAA\xAA\x03\x00\x00\x00\x88\x8E", 8);
-    len += 8;
-
-    // EAPOL
-    memset(h80211+len, 0, 99);
-    h80211[len]    = 0x02;//version
-    h80211[len+1]  = 0x03;//type
-    h80211[len+2]  = 0x00;
-    h80211[len+3]  = 0x5F;//len
-    if(opt.wpa1type)
-      h80211[len+4]  = 0xFE; //WPA1
-
-    if(opt.wpa2type)
-      h80211[len+4]  = 0x02; //WPA2
-
-    if(!opt.wpa1type && !opt.wpa2type)
-    {
-      if(G.st_cur->wpatype == 1) //WPA1
-        h80211[len+4]  = 0xFE; //WPA1
-      else
-        h80211[len+4]  = 0x02; //WPA2
-    }
-
-    // Key information
-    if(opt.sendeapol >= 1 && opt.sendeapol <= 2) //specified
-    {
-      if(opt.sendeapol == 1) //MD5
-      {
-        h80211[len+5] = 0x00;
-        h80211[len+6] = 0x89;
-      }
-      else //SHA1
-      {
-        h80211[len+5] = 0x00;
-        h80211[len+6] = 0x8a;
-      }
-    }
-    else //from asso
-    {
-      if(G.st_cur->wpahash == 1) //MD5
-      {
-        h80211[len+5] = 0x00;
-        h80211[len+6] = 0x89;
-      }
-      else if(G.st_cur->wpahash == 2) //SHA1
-      {
-        h80211[len+5] = 0x00;
-        h80211[len+6] = 0x8a;
-      }
-    }
-
-    // Key length = 0x0020 => 16 bytes
-    h80211[len+7] = 0x00;
-    h80211[len+8] = 0x10;
-
-    // Nonce
-    memset(h80211+len+9, 0, 90);
-    memcpy(h80211+len+17, G.st_cur->wpa.anonce, 32);
-
-    len+=99;
-
-    send_packet(h80211, len);
-  }
+    initiate_handshake();
 
   return 0;
 }
