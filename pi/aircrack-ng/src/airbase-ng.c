@@ -2588,6 +2588,75 @@ int store_wpa_handshake(struct ST_info *st_cur)
   return 0;
 }
 
+struct ST_info *find_or_add_client(unsigned char smac[6])
+{
+  struct ST_info *st_cur = opt.st_1st;
+  struct ST_info *st_prv = NULL;
+
+  while( st_cur != NULL )
+  {
+    if( ! memcmp( st_cur->stmac, smac, 6 ) )
+      break;
+
+    st_prv = st_cur;
+    st_cur = st_cur->next;
+  }
+
+  /* if it's a new client, add it */
+
+  if( st_cur == NULL )
+  {
+    st_cur = (struct ST_info *) malloc(sizeof(struct ST_info));
+    if (!st_cur)
+    {
+      perror("malloc failed");
+      return NULL;
+    }
+
+    memset( st_cur, 0, sizeof( struct ST_info ) );
+
+    if( opt.st_1st == NULL )
+      opt.st_1st = st_cur;
+    else
+      st_prv->next = st_cur;
+
+    memcpy( st_cur->stmac, smac, 6 );
+
+    st_cur->prev = st_prv;
+
+    st_cur->tinit = time( NULL );
+    st_cur->tlast = time( NULL );
+
+    st_cur->power = -1;
+    st_cur->rate_to = -1;
+    st_cur->rate_from = -1;
+
+    st_cur->probe_index = -1;
+    st_cur->missed  = 0;
+    st_cur->lastseq = 0;
+    gettimeofday( &(st_cur->ftimer), NULL);
+
+    int i;
+    for( i = 0; i < NB_PRB; i++ )
+    {
+      memset( st_cur->probes[i], 0, sizeof(
+            st_cur->probes[i] ) );
+      st_cur->ssid_length[i] = 0;
+    }
+
+    memset(st_cur->essid, 0, 256);
+    st_cur->essid_length = 0;
+
+    st_cur->wpatype = 0;
+    st_cur->wpahash = 0;
+    st_cur->wep = 0;
+
+    opt.st_end = st_cur;
+  }
+  
+  return st_cur;
+}
+
 int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int external)
 {
   unsigned char K[64];
@@ -2612,8 +2681,7 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
   // Index of SNAP in packet
   unsigned z;
 
-  struct ST_info *st_cur = NULL;
-  struct ST_info *st_prv = NULL;
+  struct ST_info *st_cur;
 
   reasso = 0; fixed = 0;
   memset(essid, 0, 256);
@@ -2632,29 +2700,26 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
   if (packet[0] == 0x88)
     z += 2;
 
-  if((unsigned)length < z)
-  {
+  if ((unsigned) length < z)
     return 1;
-  }
 
-  if(length > 3800)
-  {
+  if (length > 3800)
     return 1;
-  }
 
-  switch( packet[1] & 3 )
+  // Load incoming packet's bssid, source mac, and destination mac
+  switch (packet[1] & 3)
   {
-    case  0:
+    case 0:
       memcpy( bssid, packet + 16, 6 );
       memcpy( dmac, packet + 4, 6 );
       memcpy( smac, packet + 10, 6 );
       break;
-    case  1:
+    case 1:
       memcpy( bssid, packet + 4, 6 );
       memcpy( dmac, packet + 16, 6 );
       memcpy( smac, packet + 10, 6 );
       break;
-    case  2:
+    case 2:
       memcpy( bssid, packet + 10, 6 );
       memcpy( dmac, packet + 4, 6 );
       memcpy( smac, packet + 16, 6 );
@@ -2693,74 +2758,12 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     }
   }
 
-  /* check list of clients */
-  st_cur = opt.st_1st;
-  st_prv = NULL;
-
-  while( st_cur != NULL )
-  {
-    if( ! memcmp( st_cur->stmac, smac, 6 ) )
-      break;
-
-    st_prv = st_cur;
-    st_cur = st_cur->next;
-  }
-
-  /* if it's a new client, add it */
-
-  if( st_cur == NULL )
-  {
-    if( ! ( st_cur = (struct ST_info *) malloc(
-            sizeof( struct ST_info ) ) ) )
-    {
-      perror( "malloc failed" );
-      return( 1 );
-    }
-
-    memset( st_cur, 0, sizeof( struct ST_info ) );
-
-    if( opt.st_1st == NULL )
-      opt.st_1st = st_cur;
-    else
-      st_prv->next  = st_cur;
-
-    memcpy( st_cur->stmac, smac, 6 );
-
-    st_cur->prev = st_prv;
-
-    st_cur->tinit = time( NULL );
-    st_cur->tlast = time( NULL );
-
-    st_cur->power = -1;
-    st_cur->rate_to = -1;
-    st_cur->rate_from = -1;
-
-    st_cur->probe_index = -1;
-    st_cur->missed  = 0;
-    st_cur->lastseq = 0;
-    gettimeofday( &(st_cur->ftimer), NULL);
-
-    for( i = 0; i < NB_PRB; i++ )
-    {
-      memset( st_cur->probes[i], 0, sizeof(
-            st_cur->probes[i] ) );
-      st_cur->ssid_length[i] = 0;
-    }
-
-    memset(st_cur->essid, 0, 256);
-    st_cur->essid_length = 0;
-
-    st_cur->wpatype = 0;
-    st_cur->wpahash = 0;
-    st_cur->wep = 0;
-
-    opt.st_end = st_cur;
-  }
+  st_cur = find_or_add_client(smac);
+  if (!st_cur)
+    return 1;
 
   // `bssid_match` is true if the current packet's bssid matches our AP's bssid
   int bssid_match = memcmp(bssid, opt.r_bssid, 6) == 0;
-
-  // NOTE: doesn't seem to be support for `fromDS` being on
 
   /* Got a data packet with our bssid set and ToDS==1*/
   if (bssid_match && (packet[0] & 0x08) == 0x08 && (packet[1] & 0x03) == 0x01)
@@ -3325,7 +3328,7 @@ skip_probe:
     {
       // Authentication algorithm: open system
       // z (which is basically an offset to the frame body) = 24
-      if(packet[z] == 0x00)
+      if (packet[z] == 0x00)
       {
         // Authentication sequence number: make sure its an auth request
         if (packet[z + 2] == 0x01)
