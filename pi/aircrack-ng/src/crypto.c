@@ -176,7 +176,7 @@ int decrypt_wep( unsigned char *data, int len, unsigned char *key, int keylen )
 // and stores it in given `pmk` array - even though the `pmk`
 // array is of length 40 bytes, you'll generally only use 32
 // bytes for the PMK
-void calc_pmk( char *key, char *essid_pre, unsigned char pmk[40] )
+void calc_pmk( char *key, char *essid_pre, unsigned char pmk[32] )
 {
   int i, j, slen;
   unsigned char buffer[65];
@@ -247,7 +247,9 @@ void calc_pmk( char *key, char *essid_pre, unsigned char pmk[40] )
 
 void calc_mic_custom (struct WPA_hdsk *wpa,
                       unsigned char bssid[8],
-                      unsigned char pmk[32], unsigned char ptk[80], unsigned char mic[20]) {
+                      unsigned char pmk[32],
+                      unsigned char ptk[80],
+                      unsigned char mic[20]) {
   int i;
   unsigned char pke[100];
   #if defined(USE_GCRYPT) || OPENSSL_VERSION_NUMBER < 0x10100000L
@@ -313,12 +315,10 @@ void calc_mic_custom (struct WPA_hdsk *wpa,
 
   if( wpa->keyver == 1 )
   {
-    printf("md5\n");
     HMAC(EVP_md5(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL);
   }
   else
   {
-    printf("sha1\n");
     HMAC(EVP_sha1(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL);
   }
 }
@@ -748,8 +748,56 @@ int calc_ptk( struct WPA_ST_info *wpa, unsigned char pmk[32] )
         HMAC(EVP_md5(), wpa->ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL );
     else
         HMAC(EVP_sha1(), wpa->ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL );
-
+    
     return( memcmp( mic, wpa->keymic, 16 ) == 0 );
+}
+
+int calc_ptk_custom(struct WPA_hdsk *wpa, unsigned char bssid[6], unsigned char pmk[40])
+{
+    int i;
+    unsigned char ptk[80];
+    unsigned char pke[100];
+    unsigned char mic[20];
+
+    memset(ptk, 0, 80);
+    memcpy( pke, "Pairwise key expansion", 23 );
+
+    if( memcmp(wpa->stmac, bssid, 6 ) < 0 )
+    {
+        memcpy( pke + 23, wpa->stmac, 6 );
+        memcpy( pke + 29, bssid, 6 );
+    }
+    else
+    {
+        memcpy( pke + 23, bssid, 6 );
+        memcpy( pke + 29, wpa->stmac, 6 );
+    }
+
+    if( memcmp( wpa->snonce, wpa->anonce, 32 ) < 0 )
+    {
+        memcpy( pke + 35, wpa->snonce, 32 );
+        memcpy( pke + 67, wpa->anonce, 32 );
+    }
+    else
+    {
+        memcpy( pke + 35, wpa->anonce, 32 );
+        memcpy( pke + 67, wpa->snonce, 32 );
+    }
+
+    for( i = 0; i < 4; i++ )
+    {
+        pke[99] = i;
+        HMAC(EVP_sha1(), pmk, 32, pke, 100, ptk + i * 20, NULL);
+    }
+
+    /* check the EAPOL frame MIC */
+
+    if( ( wpa->keyver & 0x07 ) == 1 )
+        HMAC(EVP_md5(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL );
+    else
+        HMAC(EVP_sha1(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL );
+
+    return 1;
 }
 
 int init_michael(struct Michael *mic, unsigned char key[8])

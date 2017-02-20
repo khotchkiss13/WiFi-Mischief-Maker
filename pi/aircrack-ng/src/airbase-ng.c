@@ -2828,8 +2828,10 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
           if (opt.use_fixed_nonce) {
             memcpy(st_cur->wpa.anonce, opt.fixed_nonce, 32);
           } else {
+            // TODO: don't hardcode the anonce in the future
             for(i=0; i<32; i++)
-              st_cur->wpa.anonce[i] = rand()&0xFF;
+              st_cur->wpa.anonce[i] = 0x55;
+              //st_cur->wpa.anonce[i] = rand()&0xFF;
           }
           st_cur->wpa.state |= 1;
 
@@ -2914,7 +2916,8 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
         // if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x01\x03", 10) == 0)
         if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x02\x03", 10) == 0)
         {
-          printf("WPA 3\n");
+          // Add four to the eapol length to include the eapol "header" (which is four bytes)
+          // and not accounted for in the eapol length field
           st_cur->wpa.eapol_size = ( packet[z + 8 + 2] << 8 ) + packet[z + 8 + 3] + 4;
 
           // TODO: support a QoS data packet for handshake packet #2, which corresponds
@@ -2943,68 +2946,45 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
 
           memcpy( st_cur->wpa.stmac, st_cur->stmac, 6 );
 
+          printf("\n[*] pmk:");
+          unsigned char pmk[40];
+          calc_pmk("Petalway", apc->essid, pmk);
+          printf("%s\n", apc->essid);
+          for (i = 0; i < 32; i++) {
+            if( i % 16 == 0 ) printf("\n    ");
+            printf(" %02X", pmk[i]);
+          }
+
           store_wpa_handshake(st_cur);
 
           if(!opt.quiet)
           {
-            PCT; printf("Got WPA handshake from %02X:%02X:%02X:%02X:%02X:%02X\n",
+            PCT;
+            
+            printf("Got WPA handshake from %02X:%02X:%02X:%02X:%02X:%02X\n",
                 smac[0],smac[1],smac[2],smac[3],smac[4],smac[5]);
-
-            unsigned int i;
-            printf("\n[*] anonce:");
-            for(i = 0; i < 32; i++)
-            {
-              if(i % 16 == 0) printf("\n    ");
-              printf("%02X ", st_cur->wpa.anonce[i]);
-            }
-
-            printf("\n[*] snonce:");
-            for(i = 0; i < 32; i++)
-            {
-              if(i % 16 == 0) printf("\n    ");
-              printf("%02X ", st_cur->wpa.snonce[i]);
-            }
-
-            printf("\n[*] Key MIC:\n   ");
-            for(i = 0; i < 16; i++)
-            {
-              printf(" %02X", st_cur->wpa.keymic[i]);
-            }
-
-            printf("\n[*] eapol:");
-            for( i = 0; i < st_cur->wpa.eapol_size; i++)
-            {
-              if( i % 16 == 0 ) printf("\n    ");
-              printf("%02X ",st_cur->wpa.eapol[i]);
-
-            }
-
-            printf("\n[*] pmk:");
-            unsigned char pmk[40];
-            calc_pmk("Petalway", apc->essid, pmk);
-            printf("\n%s", apc->essid);
-            for (i = 0; i < 32; i++) {
-              if( i % 16 == 0 ) printf("\n");
-              printf(" %02X", pmk[i]);
-            }
-
+            
+            // TODO: create a simpler method in crypto.c to perform `calc_ptk`
             struct WPA_ST_info wpa_st_info;
-            memcpy(wpa_st_info.stmac, st_cur->stmac, 6);
             memcpy(wpa_st_info.bssid, bssid, 6);
+            memcpy(wpa_st_info.stmac, st_cur->stmac, 6);
             memcpy(wpa_st_info.snonce, st_cur->wpa.snonce, 32);
             memcpy(wpa_st_info.anonce, st_cur->wpa.anonce, 32);
-            memcpy(wpa_st_info.keymic, st_cur->wpa.keymic, 20);
+            memset(wpa_st_info.keymic, 0, 20);
+            memcpy(wpa_st_info.keymic, st_cur->wpa.keymic, 16);
+            memset(wpa_st_info.eapol, 0, 256);
             memcpy(wpa_st_info.eapol, st_cur->wpa.eapol, st_cur->wpa.eapol_size);
             wpa_st_info.eapol_size = st_cur->wpa.eapol_size;
             wpa_st_info.keyver = st_cur->wpa.keyver;
 
             int mic_match = calc_ptk(&wpa_st_info, pmk);
+            printf("\nmic_match: %i", mic_match);
+
             printf("\n[*] ptk:");
             for (i = 0; i < 80; i++) {
               if( i % 16 == 0 ) printf("\n    ");
               printf(" %02X", wpa_st_info.ptk[i]);
             }
-            printf("\nmic_match: %i", mic_match);
 
             unsigned char test_mic[20];
             struct WPA_hdsk wpa_custom;
@@ -3574,7 +3554,6 @@ skip_probe:
 
 
       // Send 1st handshake packet
-      printf("%s\n", "Should send 1st handshake packet");
       if( (opt.sendeapol && ( opt.wpa1type || opt.wpa2type ) ) || (st_cur->wpatype && st_cur->wpahash) )
       {
         printf("%s\n", "Sending 1st handshake packet");
@@ -3583,8 +3562,10 @@ skip_probe:
         if (opt.use_fixed_nonce) {
           memcpy(st_cur->wpa.anonce, opt.fixed_nonce, 32);
         } else {
+          // TODO: don't hardcode the anonce for now
           for(i=0; i<32; i++)
-            st_cur->wpa.anonce[i] = rand()&0xFF;
+            // st_cur->wpa.anonce[i] = rand()&0xFF;
+            st_cur->wpa.anonce[i] = 0x55;
         }
 
         st_cur->wpa.state |= 1;
