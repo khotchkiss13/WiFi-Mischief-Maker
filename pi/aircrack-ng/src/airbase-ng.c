@@ -213,6 +213,16 @@ char usage[] =
 "      --help           : Displays this usage screen\n"
 "\n";
 
+struct globals
+{
+  struct ST_info *st_cur;
+  unsigned char source_mac[6];
+  unsigned char dest_mac[6];
+  unsigned char bssid[6];
+  unsigned char *payload;
+  unsigned int payload_length;
+} G;
+
 struct options
 {
   struct ST_info *st_1st, *st_end;
@@ -2588,6 +2598,338 @@ int store_wpa_handshake(struct ST_info *st_cur)
   return 0;
 }
 
+struct ST_info *find_or_add_client(unsigned char smac[6])
+{
+  struct ST_info *st_cur = opt.st_1st;
+  struct ST_info *st_prv = NULL;
+
+  while( st_cur != NULL )
+  {
+    if( ! memcmp( st_cur->stmac, smac, 6 ) )
+      break;
+
+    st_prv = st_cur;
+    st_cur = st_cur->next;
+  }
+
+  /* if it's a new client, add it */
+
+  if( st_cur == NULL )
+  {
+    st_cur = (struct ST_info *) malloc(sizeof(struct ST_info));
+    if (!st_cur)
+    {
+      perror("malloc failed");
+      return NULL;
+    }
+
+    memset( st_cur, 0, sizeof( struct ST_info ) );
+
+    if( opt.st_1st == NULL )
+      opt.st_1st = st_cur;
+    else
+      st_prv->next = st_cur;
+
+    memcpy( st_cur->stmac, smac, 6 );
+
+    st_cur->prev = st_prv;
+
+    st_cur->tinit = time( NULL );
+    st_cur->tlast = time( NULL );
+
+    st_cur->power = -1;
+    st_cur->rate_to = -1;
+    st_cur->rate_from = -1;
+
+    st_cur->probe_index = -1;
+    st_cur->missed  = 0;
+    st_cur->lastseq = 0;
+    gettimeofday( &(st_cur->ftimer), NULL);
+
+    int i;
+    for( i = 0; i < NB_PRB; i++ )
+    {
+      memset( st_cur->probes[i], 0, sizeof(
+            st_cur->probes[i] ) );
+      st_cur->ssid_length[i] = 0;
+    }
+
+    memset(st_cur->essid, 0, 256);
+    st_cur->essid_length = 0;
+
+    st_cur->wpatype = 0;
+    st_cur->wpahash = 0;
+    st_cur->wep = 0;
+
+    opt.st_end = st_cur;
+  }
+  
+  return st_cur;
+}
+
+void print_G()
+{
+  unsigned int i;
+  printf("Payload length: %i\n", G.payload_length);
+  printf("Payload\n");
+  for (i = 0; i < G.payload_length; i += 1)
+  {
+    if (i % 16 == 0)
+      printf("\n");
+    printf("%02X ", G.payload[i]);
+  }
+}
+
+int send_association_response(unsigned char *packet)
+{
+  int reasso;
+  int tags_offset;
+  int len, i;
+
+  char essid[256];
+
+  unsigned char *buffer;
+  unsigned char *tag;
+
+  unsigned z;
+  z = ( ( packet[1] & 3 ) != 3 ) ? 24 : 30;
+
+  // SNAP is offset by two extra bytes in a QoS data frame
+  if (packet[0] == 0x88)
+    z += 2;
+
+  if (packet[0] == 0x00)
+  {
+    reasso = 0;
+    tags_offset = z + 4;
+  }
+  else
+  {
+    reasso = 1;
+    tags_offset = z + 10;
+  }
+
+  G.st_cur->wep = (packet[z] & 0x10) >> 4;
+  
+  print_G();
+
+  // `len` is a really function-global variable used for various
+  // seemingly unrelated functions - here it stores length of an essid
+  tag = parse_tags(packet + tags_offset, 0, G.payload_length - tags_offset, &len);
+  if (tag != NULL && tag[0] >= 32 && len < 256)
+  {
+    memcpy(essid, tag, len);
+    essid[len] = 0x00;
+
+    if (opt.f_essid && !gotESSID(essid, len))
+      return 0;
+  }
+
+  G.st_cur->wpatype = 0;
+  G.st_cur->wpahash = 0;
+
+  tag = parse_tags(packet + tags_offset, 0xDD, G.payload_length - tags_offset, &len);
+  while(tag != NULL)
+  {
+    wpa_client(G.st_cur, tag-2, len+2);
+    tag += (tag-2)[1]+2;
+    tag = parse_tags(tag-2, 0xDD, G.payload_length-(tag-packet)+2, &len);
+  }
+
+  tag = parse_tags(packet + tags_offset, 0x30, G.payload_length - tags_offset, &len);
+  while(tag != NULL)
+  {
+    wpa_client(G.st_cur, tag-2, len+2);
+    tag += (tag-2)[1]+2;
+    tag = parse_tags(tag-2, 0x30, G.payload_length-(tag-packet)+2, &len);
+  }
+
+  if (!reasso)
+    G.payload[0] = 0x10;
+  else
+    G.payload[0] = 0x30;
+
+  memcpy(G.payload + 4, G.source_mac, 6);
+  memcpy(G.payload + 10, G.dest_mac, 6);
+
+  //store the tagged parameters and insert the fixed ones
+  buffer = (unsigned char*) malloc(G.payload_length - tags_offset);
+  memcpy(buffer, G.payload + tags_offset, G.payload_length - tags_offset);
+
+  // Indicate association success
+  G.payload[z+2] = 0x00;
+  G.payload[z+3] = 0x00;
+  // Set association ID to 0x01C0?
+  G.payload[z+4] = 0x01;
+  G.payload[z+5] = 0xC0;
+
+  // Copy all tags in request to response payload,
+  // `G.payload + z + 6` is where tags should begin
+  memcpy(G.payload+z+6, buffer, G.payload_length - tags_offset);
+  G.payload_length += (6-(tags_offset - z));
+  free(buffer);
+  buffer = NULL;
+
+  len = G.payload_length - z - 6;
+  remove_tag(G.payload+z+6, 0, &len);
+  G.payload_length = len + z + 6;
+
+  send_packet(G.payload, G.payload_length);
+
+  if(!opt.quiet)
+  {
+    PCT;
+    printf("Client %02X:%02X:%02X:%02X:%02X:%02X %sassociated",
+      G.source_mac[0],
+      G.source_mac[1],
+      G.source_mac[2],
+      G.source_mac[3],                                   
+      G.source_mac[4],
+      G.source_mac[5],
+      (reasso==0)?"":"re");
+
+    if(G.st_cur->wpatype != 0)
+    {
+      if(G.st_cur->wpatype == 1)
+        printf(" (WPA1");
+      else
+        printf(" (WPA2");
+
+      if(G.st_cur->wpahash == 1)
+        printf(";TKIP)");
+      else
+        printf(";CCMP)");
+    }
+    else if(G.st_cur->wep != 0)
+    {
+      printf(" (WEP)");
+    }
+    else
+    {
+      printf(" (unencrypted)");
+    }
+
+    if(essid[0] != 0x00)
+      printf(" to ESSID: \"%s\"", essid);
+    printf("\n");
+  }
+
+  // Copy parsed essid into `G.st_cur` and reset `essid`
+  memset(G.st_cur->essid, 0, 256);
+  memcpy(G.st_cur->essid, essid, 255);
+  G.st_cur->essid_length = strlen(essid);
+  memset(essid, 0, 256);
+
+
+  // Send 1st handshake packet
+  if( (opt.sendeapol && ( opt.wpa1type || opt.wpa2type ) ) || (G.st_cur->wpatype && G.st_cur->wpahash) )
+  {
+    printf("%s\n", "Sending 1st handshake packet");
+    G.st_cur->wpa.state = 0;
+
+    if (opt.use_fixed_nonce) {
+      memcpy(G.st_cur->wpa.anonce, opt.fixed_nonce, 32);
+    } else {
+      // TODO: don't hardcode the anonce for now
+      for(i=0; i<32; i++)
+        // st_cur->wpa.anonce[i] = rand()&0xFF;
+        G.st_cur->wpa.anonce[i] = 0x55;
+    }
+
+    G.st_cur->wpa.state |= 1;
+
+    /* build first eapol frame */
+    // x08 = data frame or x88 = QoS data frame
+    // x02 = frame fromDS (toDS: 0, fromDS: 1)
+    // xd500 = frame duration
+    memcpy(h80211, "\x88\x02\xd5\x00", 4);
+    len = 4;
+
+    memcpy(h80211+len, G.source_mac, 6);
+    len += 6;
+    memcpy(h80211+len, G.bssid, 6);
+    len += 6;
+    memcpy(h80211+len, G.bssid, 6);
+    len += 6;
+
+    // Sequence and fragment numbers
+    h80211[len] = 0x00;
+    h80211[len+1] = 0x00;
+    len += 2;
+
+    // QoS = uncomment on x88 (QoS data frame) use
+    h80211[len] = 0x06;
+    h80211[len+1] = 0x00;
+    len += 2;
+
+    // LLC and SNAP
+    memcpy(h80211+len, "\xAA\xAA\x03\x00\x00\x00\x88\x8E", 8);
+    len += 8;
+
+    // EAPOL
+    memset(h80211+len, 0, 99);
+    h80211[len]    = 0x02;//version
+    h80211[len+1]  = 0x03;//type
+    h80211[len+2]  = 0x00;
+    h80211[len+3]  = 0x5F;//len
+    if(opt.wpa1type)
+      h80211[len+4]  = 0xFE; //WPA1
+
+    if(opt.wpa2type)
+      h80211[len+4]  = 0x02; //WPA2
+
+    if(!opt.wpa1type && !opt.wpa2type)
+    {
+      if(G.st_cur->wpatype == 1) //WPA1
+        h80211[len+4]  = 0xFE; //WPA1
+      else
+        h80211[len+4]  = 0x02; //WPA2
+    }
+
+    // Key information
+    if(opt.sendeapol >= 1 && opt.sendeapol <= 2) //specified
+    {
+      if(opt.sendeapol == 1) //MD5
+      {
+        h80211[len+5] = 0x00;
+        h80211[len+6] = 0x89;
+      }
+      else //SHA1
+      {
+        h80211[len+5] = 0x00;
+        h80211[len+6] = 0x8a;
+      }
+    }
+    else //from asso
+    {
+      if(G.st_cur->wpahash == 1) //MD5
+      {
+        h80211[len+5] = 0x00;
+        h80211[len+6] = 0x89;
+      }
+      else if(G.st_cur->wpahash == 2) //SHA1
+      {
+        h80211[len+5] = 0x00;
+        h80211[len+6] = 0x8a;
+      }
+    }
+
+    // Key length = 0x0020 => 16 bytes
+    h80211[len+7] = 0x00;
+    h80211[len+8] = 0x10;
+
+    // Nonce
+    memset(h80211+len+9, 0, 90);
+    memcpy(h80211+len+17, G.st_cur->wpa.anonce, 32);
+
+    len+=99;
+
+    send_packet(h80211, len);
+  }
+
+  return 0;
+}
+
 int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int external)
 {
   unsigned char K[64];
@@ -2607,15 +2949,13 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
   int seqnum, fragnum, morefrag;
   int gotsource, gotbssid;
   int remaining, bytes2use;
-  int reasso, fixed, temp_channel;
+  int temp_channel;
 
   // Index of SNAP in packet
   unsigned z;
 
-  struct ST_info *st_cur = NULL;
-  struct ST_info *st_prv = NULL;
+  struct ST_info *st_cur;
 
-  reasso = 0; fixed = 0;
   memset(essid, 0, 256);
 
   pthread_mutex_lock(&mx_cap);
@@ -2632,29 +2972,26 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
   if (packet[0] == 0x88)
     z += 2;
 
-  if((unsigned)length < z)
-  {
+  if ((unsigned) length < z)
     return 1;
-  }
 
-  if(length > 3800)
-  {
+  if (length > 3800)
     return 1;
-  }
 
-  switch( packet[1] & 3 )
+  // Load incoming packet's bssid, source mac, and destination mac
+  switch (packet[1] & 3)
   {
-    case  0:
+    case 0:
       memcpy( bssid, packet + 16, 6 );
       memcpy( dmac, packet + 4, 6 );
       memcpy( smac, packet + 10, 6 );
       break;
-    case  1:
+    case 1:
       memcpy( bssid, packet + 4, 6 );
       memcpy( dmac, packet + 16, 6 );
       memcpy( smac, packet + 10, 6 );
       break;
-    case  2:
+    case 2:
       memcpy( bssid, packet + 10, 6 );
       memcpy( dmac, packet + 4, 6 );
       memcpy( smac, packet + 16, 6 );
@@ -2665,6 +3002,21 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
       memcpy( smac, packet + 24, 6 );
       break;
   }
+
+  // @G
+  memcpy(G.source_mac, smac, 6);
+  memcpy(G.dest_mac, dmac, 6);
+  memcpy(G.bssid, bssid, 6);
+
+  G.payload_length = length;
+  G.payload = malloc(length);
+  if (!G.payload)
+  {
+    perror("malloc failed");
+    return 1;
+  }
+  memcpy(G.payload, packet, length);
+  // @G
 
   if( (packet[1] & 3) == 0x03)
   {
@@ -2693,74 +3045,16 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     }
   }
 
-  /* check list of clients */
-  st_cur = opt.st_1st;
-  st_prv = NULL;
+  st_cur = find_or_add_client(smac);
+  if (!st_cur)
+    return 1;
 
-  while( st_cur != NULL )
-  {
-    if( ! memcmp( st_cur->stmac, smac, 6 ) )
-      break;
-
-    st_prv = st_cur;
-    st_cur = st_cur->next;
-  }
-
-  /* if it's a new client, add it */
-
-  if( st_cur == NULL )
-  {
-    if( ! ( st_cur = (struct ST_info *) malloc(
-            sizeof( struct ST_info ) ) ) )
-    {
-      perror( "malloc failed" );
-      return( 1 );
-    }
-
-    memset( st_cur, 0, sizeof( struct ST_info ) );
-
-    if( opt.st_1st == NULL )
-      opt.st_1st = st_cur;
-    else
-      st_prv->next  = st_cur;
-
-    memcpy( st_cur->stmac, smac, 6 );
-
-    st_cur->prev = st_prv;
-
-    st_cur->tinit = time( NULL );
-    st_cur->tlast = time( NULL );
-
-    st_cur->power = -1;
-    st_cur->rate_to = -1;
-    st_cur->rate_from = -1;
-
-    st_cur->probe_index = -1;
-    st_cur->missed  = 0;
-    st_cur->lastseq = 0;
-    gettimeofday( &(st_cur->ftimer), NULL);
-
-    for( i = 0; i < NB_PRB; i++ )
-    {
-      memset( st_cur->probes[i], 0, sizeof(
-            st_cur->probes[i] ) );
-      st_cur->ssid_length[i] = 0;
-    }
-
-    memset(st_cur->essid, 0, 256);
-    st_cur->essid_length = 0;
-
-    st_cur->wpatype = 0;
-    st_cur->wpahash = 0;
-    st_cur->wep = 0;
-
-    opt.st_end = st_cur;
-  }
+  // @G
+  G.st_cur = st_cur;
+  // @G
 
   // `bssid_match` is true if the current packet's bssid matches our AP's bssid
   int bssid_match = memcmp(bssid, opt.r_bssid, 6) == 0;
-
-  // NOTE: doesn't seem to be support for `fromDS` being on
 
   /* Got a data packet with our bssid set and ToDS==1*/
   if (bssid_match && (packet[0] & 0x08) == 0x08 && (packet[1] & 0x03) == 0x01)
@@ -3325,7 +3619,7 @@ skip_probe:
     {
       // Authentication algorithm: open system
       // z (which is basically an offset to the frame body) = 24
-      if(packet[z] == 0x00)
+      if (packet[z] == 0x00)
       {
         // Authentication sequence number: make sure its an auth request
         if (packet[z + 2] == 0x01)
@@ -3417,232 +3711,14 @@ skip_probe:
     // 802.1X association request or reassociation
     // 0x00 = association, 0x20 = reassociation
     if ((packet[0] == 0x00 || packet[0] == 0x20) && bssid_match)
-    {
-      if (packet[0] == 0x00)
-      {
-        reasso = 0;
-        fixed = 4;
-      }
-      else
-      {
-        reasso = 1;
-        fixed = 10;
-      }
-
-      st_cur->wep = (packet[z] & 0x10) >> 4;
-
-      // `len` is a really function-global variable used for various
-      // seemingly unrelated functions - here is stores length of an essid
-      tag = parse_tags(packet+z+fixed, 0, length-z-fixed, &len);
-      if (tag != NULL && tag[0] >= 32 && len < 256)
-      {
-        memcpy(essid, tag, len);
-        essid[len] = 0x00;
-
-        if (opt.f_essid && !gotESSID(essid, len))
-          return 0;
-      }
-
-      st_cur->wpatype = 0;
-      st_cur->wpahash = 0;
-
-      tag = parse_tags(packet+z+fixed, 0xDD, length-z-fixed, &len);
-      while(tag != NULL)
-      {
-        printf("Found WPA TAG\n");
-        wpa_client(st_cur, tag-2, len+2);
-        tag += (tag-2)[1]+2;
-        tag = parse_tags(tag-2, 0xDD, length-(tag-packet)+2, &len);
-      }
-
-      tag = parse_tags(packet+z+fixed, 0x30, length-z-fixed, &len);
-      while(tag != NULL)
-      {
-        printf("Found WPA2 TAG\n");
-        wpa_client(st_cur, tag-2, len+2);
-        tag += (tag-2)[1]+2;
-        tag = parse_tags(tag-2, 0x30, length-(tag-packet)+2, &len);
-      }
-
-      if (!reasso)
-        packet[0] = 0x10;
-      else
-        packet[0] = 0x30;
-
-      memcpy(packet + 4, smac, 6);
-      memcpy(packet + 10, dmac, 6);
-
-      //store the tagged parameters and insert the fixed ones
-      buffer = (unsigned char*) malloc(length-z-fixed);
-      memcpy(buffer, packet+z+fixed, length-z-fixed);
-
-      packet[z+2] = 0x00;
-      packet[z+3] = 0x00;
-      packet[z+4] = 0x01;
-      packet[z+5] = 0xC0;
-
-      memcpy(packet+z+6, buffer, length-z-fixed);
-      length +=(6-fixed);
-      free(buffer);
-      buffer = NULL;
-
-      len = length - z - 6;
-      remove_tag(packet+z+6, 0, &len);
-      length = len + z + 6;
-
-      send_packet(packet, length);
-
-      if(!opt.quiet)
-      {
-        PCT; printf("Client %02X:%02X:%02X:%02X:%02X:%02X %sassociated",
-            smac[0],smac[1],smac[2],smac[3],smac[4],smac[5], (reasso==0)?"":"re");
-        if(st_cur->wpatype != 0)
-        {
-          if(st_cur->wpatype == 1)
-            printf(" (WPA1");
-          else
-            printf(" (WPA2");
-
-          if(st_cur->wpahash == 1)
-            printf(";TKIP)");
-          else
-            printf(";CCMP)");
-        }
-        else if(st_cur->wep != 0)
-        {
-          printf(" (WEP)");
-        }
-        else
-        {
-          printf(" (unencrypted)");
-        }
-
-        if(essid[0] != 0x00)
-          printf(" to ESSID: \"%s\"", essid);
-        printf("\n");
-      }
-
-      memset(st_cur->essid, 0, 256);
-      memcpy(st_cur->essid, essid, 255);
-      st_cur->essid_length = strlen(essid);
-
-      memset(essid, 0, 256);
-
-
-      // Send 1st handshake packet
-      if( (opt.sendeapol && ( opt.wpa1type || opt.wpa2type ) ) || (st_cur->wpatype && st_cur->wpahash) )
-      {
-        printf("%s\n", "Sending 1st handshake packet");
-        st_cur->wpa.state = 0;
-
-        if (opt.use_fixed_nonce) {
-          memcpy(st_cur->wpa.anonce, opt.fixed_nonce, 32);
-        } else {
-          // TODO: don't hardcode the anonce for now
-          for(i=0; i<32; i++)
-            // st_cur->wpa.anonce[i] = rand()&0xFF;
-            st_cur->wpa.anonce[i] = 0x55;
-        }
-
-        st_cur->wpa.state |= 1;
-
-        /* build first eapol frame */
-        // x08 = data frame or x88 = QoS data frame
-        // x02 = frame fromDS (toDS: 0, fromDS: 1)
-        // xd500 = frame duration
-        memcpy(h80211, "\x88\x02\xd5\x00", 4);
-        len = 4;
-
-        memcpy(h80211+len, smac, 6);
-        len += 6;
-        memcpy(h80211+len, bssid, 6);
-        len += 6;
-        memcpy(h80211+len, bssid, 6);
-        len += 6;
-
-        // Sequence and fragment numbers
-        h80211[len] = 0x00;
-        h80211[len+1] = 0x00;
-        len += 2;
-
-        // QoS = uncomment on x88 (QoS data frame) use
-        h80211[len] = 0x06;
-        h80211[len+1] = 0x00;
-        len += 2;
-
-        // LLC and SNAP
-        memcpy(h80211+len, "\xAA\xAA\x03\x00\x00\x00\x88\x8E", 8);
-        len += 8;
-
-        // EAPOL
-        memset(h80211+len, 0, 99);
-        h80211[len]    = 0x02;//version
-        h80211[len+1]  = 0x03;//type
-        h80211[len+2]  = 0x00;
-        h80211[len+3]  = 0x5F;//len
-        if(opt.wpa1type)
-          h80211[len+4]  = 0xFE; //WPA1
-
-        if(opt.wpa2type)
-          h80211[len+4]  = 0x02; //WPA2
-
-        if(!opt.wpa1type && !opt.wpa2type)
-        {
-          if(st_cur->wpatype == 1) //WPA1
-            h80211[len+4]  = 0xFE; //WPA1
-          else
-            h80211[len+4]  = 0x02; //WPA2
-        }
-
-        // Key information
-        if(opt.sendeapol >= 1 && opt.sendeapol <= 2) //specified
-        {
-          if(opt.sendeapol == 1) //MD5
-          {
-            h80211[len+5] = 0x00;
-            h80211[len+6] = 0x89;
-          }
-          else //SHA1
-          {
-            h80211[len+5] = 0x00;
-            h80211[len+6] = 0x8a;
-          }
-        }
-        else //from asso
-        {
-          if(st_cur->wpahash == 1) //MD5
-          {
-            h80211[len+5] = 0x00;
-            h80211[len+6] = 0x89;
-          }
-          else if(st_cur->wpahash == 2) //SHA1
-          {
-            h80211[len+5] = 0x00;
-            h80211[len+6] = 0x8a;
-          }
-        }
-
-        // Key length = 0x0020 => 16 bytes
-        h80211[len+7] = 0x00;
-        h80211[len+8] = 0x10;
-
-        // Nonce
-        memset(h80211+len+9, 0, 90);
-        memcpy(h80211+len+17, st_cur->wpa.anonce, 32);
-
-        len+=99;
-
-        send_packet(h80211, len);
-      }
-
-      return 0;
-    }
+      return send_association_response(packet);
 
     return 0;
   }
 
   return 0;
 }
+
 
 void beacon_thread( void *arg )
 {
@@ -4110,6 +4186,7 @@ int main( int argc, char *argv[] )
   unsigned char mac[6];
 
   /* check the arguments */
+  memset(&G, 0, sizeof(G));
 
   memset( &opt, 0, sizeof( opt ) );
   memset( &dev, 0, sizeof( dev ) );
