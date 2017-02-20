@@ -1,1 +1,58 @@
-Code for use on Berkeley Hive machines.
+Documentation for setting up Hashcat on the hive computers
+
+First, download the binaries from [Hashcat](https://hashcat.net/files/hashcat-3.30.7z)
+
+Unzip the contents using the following command"
+`7z x hashcar-3.30.7z`
+
+On the hive16 machine, there is a warning about having an out of date Nvidia
+driver. This can easily be bypassed using the `--force` flag.
+
+Running the following command will run the password cracking software:
+`./hashcat64.bin -m 2500 <cap-file>.hccap <password-file> -w 3 --force`
+
+If you want to re-run a hccap file that has already been cracked,
+add the `--potfile-disabled` flag to bypass the saved password
+
+Output from running brute force with one million passwords:
+OpenCL Platform #1: NVIDIA Corporation
+======================================
+* Device #1: GeForce GT 740, 244/978 MB allocatable, 2MCU
+
+Hashes: 1 digests; 1 unique digests, 1 unique salts
+Bitmaps: 16 bits, 65536 entries, 0x0000ffff mask, 262144 bytes, 5/13 rotates
+Rules: 1
+
+Applicable Optimizers:
+* Zero-Byte
+* Single-Hash
+* Single-Salt
+* Slow-Hash-SIMD
+
+Watchdog: Temperature abort trigger set to 90c
+Watchdog: Temperature retain trigger disabled
+
+Cache-hit dictionary stats ../passwords-large.txt: 8529123 bytes, 1000000 words, 1000000 keyspace
+
+INFO: approaching final keyspace, workload adjusted
+
+2400warring:2aa43c99fb7c:40880537102e:2400abcfed
+
+Session..........: hashcat
+Status...........: Cracked
+Hash.Type........: WPA/WPA2
+Hash.Target......: 2400warring (2a:a4:3c:99:fb:7c <-> 40:88:05:37:10:2e)
+Time.Started.....: Sun Feb 19 18:41:32 2017 (1 min, 5 secs)
+Time.Estimated...: Sun Feb 19 18:42:37 2017 (0 secs)
+Input.Base.......: File (../passwords-large.txt)
+Input.Queue......: 1/1 (100.00%)
+Speed.Dev.#1.....:     7451 H/s (65.54ms)
+Recovered........: 1/1 (100.00%) Digests, 1/1 (100.00%) Salts
+Progress.........: 1000000/1000000 (100.00%)
+Rejected.........: 511867/1000000 (51.19%)
+Restore.Point....: 957221/1000000 (95.72%)
+Candidates.#1....: watchfilm060388 -> 2400abcfed
+HWMon.Dev.#1.....: Temp: 62c Fan: 54%
+
+Started: Sun Feb 19 18:41:27 2017
+Stopped: Sun Feb 19 18:42:38 2017
