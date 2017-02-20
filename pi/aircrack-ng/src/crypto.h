@@ -228,7 +228,7 @@ int decrypt_tkip( unsigned char *h80211, int caplen, unsigned char TK1[16] );
 int encrypt_ccmp( unsigned char *h80211, int caplen, unsigned char TK1[16], unsigned char PN[6] );
 int decrypt_ccmp( unsigned char *h80211, int caplen, unsigned char TK1[16] );
 int calc_ptk( struct WPA_ST_info *wpa, unsigned char pmk[32] );
-int calc_ptk_custom(struct WPA_hdsk *wpa, unsigned char bssid[6], unsigned char pmk[40]);
+int calc_ptk_custom(struct WPA_hdsk *wpa, unsigned char bssid[6], unsigned char pmk[32], unsigned char ptk[80]);
 int calc_tkip_mic(unsigned char* packet, int length, unsigned char ptk[80], unsigned char value[8]);
 int michael_test(unsigned char key[8], unsigned char *message, int length, unsigned char out[8]);
 int calc_tkip_mic_key(unsigned char* packet, int length, unsigned char key[8]);

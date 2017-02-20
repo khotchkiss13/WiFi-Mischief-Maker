@@ -752,10 +752,12 @@ int calc_ptk( struct WPA_ST_info *wpa, unsigned char pmk[32] )
     return( memcmp( mic, wpa->keymic, 16 ) == 0 );
 }
 
-int calc_ptk_custom(struct WPA_hdsk *wpa, unsigned char bssid[6], unsigned char pmk[40])
+int calc_ptk_custom(struct WPA_hdsk *wpa,
+                    unsigned char bssid[6],
+                    unsigned char pmk[32],
+                    unsigned char ptk[80])
 {
     int i;
-    unsigned char ptk[80];
     unsigned char pke[100];
     unsigned char mic[20];
 
@@ -791,13 +793,12 @@ int calc_ptk_custom(struct WPA_hdsk *wpa, unsigned char bssid[6], unsigned char 
     }
 
     /* check the EAPOL frame MIC */
-
     if( ( wpa->keyver & 0x07 ) == 1 )
         HMAC(EVP_md5(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL );
     else
         HMAC(EVP_sha1(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL );
 
-    return 1;
+    return( memcmp( mic, wpa->keymic, 16 ) == 0 );
 }
 
 int init_michael(struct Michael *mic, unsigned char key[8])

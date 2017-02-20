@@ -2946,15 +2946,6 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
 
           memcpy( st_cur->wpa.stmac, st_cur->stmac, 6 );
 
-          printf("\n[*] pmk:");
-          unsigned char pmk[40];
-          calc_pmk("Petalway", apc->essid, pmk);
-          printf("%s\n", apc->essid);
-          for (i = 0; i < 32; i++) {
-            if( i % 16 == 0 ) printf("\n    ");
-            printf(" %02X", pmk[i]);
-          }
-
           store_wpa_handshake(st_cur);
 
           if(!opt.quiet)
@@ -2964,32 +2955,20 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
             printf("Got WPA handshake from %02X:%02X:%02X:%02X:%02X:%02X\n",
                 smac[0],smac[1],smac[2],smac[3],smac[4],smac[5]);
             
-            // TODO: create a simpler method in crypto.c to perform `calc_ptk`
-            struct WPA_ST_info wpa_st_info;
-            memcpy(wpa_st_info.bssid, bssid, 6);
-            memcpy(wpa_st_info.stmac, st_cur->stmac, 6);
-            memcpy(wpa_st_info.snonce, st_cur->wpa.snonce, 32);
-            memcpy(wpa_st_info.anonce, st_cur->wpa.anonce, 32);
-            memset(wpa_st_info.keymic, 0, 20);
-            memcpy(wpa_st_info.keymic, st_cur->wpa.keymic, 16);
-            memset(wpa_st_info.eapol, 0, 256);
-            memcpy(wpa_st_info.eapol, st_cur->wpa.eapol, st_cur->wpa.eapol_size);
-            wpa_st_info.eapol_size = st_cur->wpa.eapol_size;
-            wpa_st_info.keyver = st_cur->wpa.keyver;
-
-            int mic_match = calc_ptk(&wpa_st_info, pmk);
-            printf("\nmic_match: %i", mic_match);
-
-            printf("\n[*] ptk:");
-            for (i = 0; i < 80; i++) {
+            unsigned char pmk[40];
+            // TODO: the password shouldn't be hardcoded in the future
+            calc_pmk("Petalway", apc->essid, pmk);
+            for (i = 0; i < 32; i++) {
               if( i % 16 == 0 ) printf("\n    ");
-              printf(" %02X", wpa_st_info.ptk[i]);
+              printf(" %02X", pmk[i]);
             }
 
-            unsigned char test_mic[20];
-            struct WPA_hdsk wpa_custom;
-            memcpy(&wpa_custom, &st_cur->wpa, sizeof(st_cur->wpa));
-            calc_mic_custom(&wpa_custom, bssid, pmk, wpa_st_info.ptk, test_mic);
+            unsigned char ptk[80];
+            int mic_match = calc_ptk_custom(&st_cur->wpa, bssid, pmk, ptk);
+            printf("\nmic_match: %i", mic_match);
+
+            unsigned char test_mic[16];
+            calc_mic_custom(&st_cur->wpa, bssid, pmk, ptk, test_mic);
 
             printf("\n[*] calculated mic:");
             for (i = 0; i < 16; i++) { printf(" %02X", test_mic[i]); }
@@ -3351,7 +3330,6 @@ skip_probe:
         // Authentication sequence number: make sure its an auth request
         if (packet[z + 2] == 0x01)
         {
-          printf("%s\n", "Authentication");
           if (opt.verbose)
           {
             PCT; printf("Got an auth request from %02X:%02X:%02X:%02X:%02X:%02X (open system)\n",
@@ -3369,7 +3347,6 @@ skip_probe:
           }
 
           send_packet(packet, length);
-          printf("%s\n", "Sending auth response");
           return 0;
         }
       }
@@ -3441,7 +3418,6 @@ skip_probe:
     // 0x00 = association, 0x20 = reassociation
     if ((packet[0] == 0x00 || packet[0] == 0x20) && bssid_match)
     {
-      printf("%s\n", "Association packet");
       if (packet[0] == 0x00)
       {
         reasso = 0;
