@@ -2807,40 +2807,8 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
       /* Is encrypted */
       if( (packet[z] != packet[z + 1] || packet[z + 2] != 0x03) && (packet[1] & 0x40) == 0x40 )
       {
-        /* check the extended IV flag */
-        /* WEP and we got the key */
-        if( ( packet[z + 3] & 0x20 ) == 0 && opt.crypt == CRYPT_WEP && !opt.cf_attack)
-        {
-          memcpy( K, packet + z, 3 );
-          memcpy( K + 3, opt.wepkey, opt.weplen );
-
-          if (decrypt_wep( packet + z + 4, length - z - 4,
-                K, 3 + opt.weplen ) == 0 )
-          {
-            //                         printf("ICV check failed!\n");
-            return 1;
-          }
-
-          /* WEP data packet was successfully decrypted, *
-           * remove the WEP IV & ICV and write the data  */
-
-          length -= 8;
-
-          memcpy( packet + z, packet + z + 4, length - z );
-
-          packet[1] &= 0xBF;
-        }
-        else
-        {
-          if(opt.cf_attack)
-          {
-            addCF(packet, length);
-            return 0;
-          }
-
-          /* its a packet for us, but we either don't have the key or its WPA -> throw it away */
-          return 0;
-        }
+        // TODO: actually do something with encrypyted data packet
+        return 0;
       }
       else
       {
@@ -2860,8 +2828,10 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
           if (opt.use_fixed_nonce) {
             memcpy(st_cur->wpa.anonce, opt.fixed_nonce, 32);
           } else {
+            // TODO: don't hardcode the anonce in the future
             for(i=0; i<32; i++)
-              st_cur->wpa.anonce[i] = rand()&0xFF;
+              st_cur->wpa.anonce[i] = 0x55;
+              //st_cur->wpa.anonce[i] = rand()&0xFF;
           }
           st_cur->wpa.state |= 1;
 
@@ -2946,7 +2916,8 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
         // if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x01\x03", 10) == 0)
         if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x02\x03", 10) == 0)
         {
-          printf("WPA 3\n");
+          // Add four to the eapol length to include the eapol "header" (which is four bytes)
+          // and not accounted for in the eapol length field
           st_cur->wpa.eapol_size = ( packet[z + 8 + 2] << 8 ) + packet[z + 8 + 3] + 4;
 
           // TODO: support a QoS data packet for handshake packet #2, which corresponds
@@ -2976,10 +2947,31 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
           memcpy( st_cur->wpa.stmac, st_cur->stmac, 6 );
 
           store_wpa_handshake(st_cur);
+
           if(!opt.quiet)
           {
-            PCT; printf("Got WPA handshake from %02X:%02X:%02X:%02X:%02X:%02X\n",
+            PCT;
+            
+            printf("Got WPA handshake from %02X:%02X:%02X:%02X:%02X:%02X\n",
                 smac[0],smac[1],smac[2],smac[3],smac[4],smac[5]);
+            
+            unsigned char pmk[40];
+            // TODO: the password shouldn't be hardcoded in the future
+            calc_pmk("Petalway", apc->essid, pmk);
+            for (i = 0; i < 32; i++) {
+              if( i % 16 == 0 ) printf("\n    ");
+              printf(" %02X", pmk[i]);
+            }
+
+            unsigned char ptk[80];
+            int mic_match = calc_ptk_custom(&st_cur->wpa, bssid, pmk, ptk);
+            printf("\nmic_match: %i", mic_match);
+
+            unsigned char test_mic[16];
+            calc_mic_custom(&st_cur->wpa, bssid, pmk, ptk, test_mic);
+
+            printf("\n[*] calculated mic:");
+            for (i = 0; i < 16; i++) { printf(" %02X", test_mic[i]); }
           }
 
           return 0;
@@ -3538,16 +3530,18 @@ skip_probe:
 
 
       // Send 1st handshake packet
-      /* either specified or determined */
       if( (opt.sendeapol && ( opt.wpa1type || opt.wpa2type ) ) || (st_cur->wpatype && st_cur->wpahash) )
       {
+        printf("%s\n", "Sending 1st handshake packet");
         st_cur->wpa.state = 0;
 
         if (opt.use_fixed_nonce) {
           memcpy(st_cur->wpa.anonce, opt.fixed_nonce, 32);
         } else {
+          // TODO: don't hardcode the anonce for now
           for(i=0; i<32; i++)
-            st_cur->wpa.anonce[i] = rand()&0xFF;
+            // st_cur->wpa.anonce[i] = rand()&0xFF;
+            st_cur->wpa.anonce[i] = 0x55;
         }
 
         st_cur->wpa.state |= 1;
