@@ -29,7 +29,7 @@
  * do not wish to do so, delete this exception statement from your
  * version.  If you delete this exception statement from all source
  * files in the program, then also delete it here.
- 
+
  */
 
 #ifndef _CRYPTO_H
@@ -71,39 +71,39 @@
 #define	IEEE80211_FC0_SUBTYPE_QOS_NULL          0xc0
 
 #define GET_SUBTYPE(fc) \
-    ( ( (fc) & IEEE80211_FC0_SUBTYPE_MASK ) >> IEEE80211_FC0_SUBTYPE_SHIFT ) \
-        << IEEE80211_FC0_SUBTYPE_SHIFT
+  ( ( (fc) & IEEE80211_FC0_SUBTYPE_MASK ) >> IEEE80211_FC0_SUBTYPE_SHIFT ) \
+  << IEEE80211_FC0_SUBTYPE_SHIFT
 
 #define ROL32( A, n ) \
-	( ((A) << (n)) | ( ((A)>>(32-(n))) & ( (1UL << (n)) - 1 ) ) )
+  ( ((A) << (n)) | ( ((A)>>(32-(n))) & ( (1UL << (n)) - 1 ) ) )
 #define ROR32( A, n ) ROL32( (A), 32-(n) )
 
 struct WPA_ST_info
 {
-    struct WPA_ST_info *next;       /* next supplicant              */
-    unsigned char stmac[6];             /* supplicant MAC               */
-    unsigned char bssid[6];             /* authenticator MAC            */
-    unsigned char snonce[32];           /* supplicant nonce             */
-    unsigned char anonce[32];           /* authenticator nonce          */
-    unsigned char keymic[20];           /* eapol frame MIC              */
-    unsigned char eapol[256];           /* eapol frame contents         */
-    unsigned char ptk[80];              /* pairwise transcient key      */
-    unsigned eapol_size;            /* eapol frame size             */
-    unsigned long t_crc;        /* last ToDS   frame CRC        */
-    unsigned long f_crc;        /* last FromDS frame CRC        */
-    int keyver, valid_ptk;
-    unsigned char pn[6];                /* Packet Number (WPA-CCMP) */
+  struct WPA_ST_info *next;       /* next supplicant              */
+  unsigned char stmac[6];             /* supplicant MAC               */
+  unsigned char bssid[6];             /* authenticator MAC            */
+  unsigned char snonce[32];           /* supplicant nonce             */
+  unsigned char anonce[32];           /* authenticator nonce          */
+  unsigned char keymic[20];           /* eapol frame MIC              */
+  unsigned char eapol[256];           /* eapol frame contents         */
+  unsigned char ptk[80];              /* pairwise transcient key      */
+  unsigned eapol_size;            /* eapol frame size             */
+  unsigned long t_crc;        /* last ToDS   frame CRC        */
+  unsigned long f_crc;        /* last FromDS frame CRC        */
+  int keyver, valid_ptk;
+  unsigned char pn[6];                /* Packet Number (WPA-CCMP) */
 };
 
 struct Michael
 {
-    unsigned long key0;
-    unsigned long key1;
-    unsigned long left;
-    unsigned long right;
-    unsigned long nBytesInM;
-    unsigned long message;
-    unsigned char mic[8];
+  unsigned long key0;
+  unsigned long key1;
+  unsigned long left;
+  unsigned long right;
+  unsigned long nBytesInM;
+  unsigned long message;
+  unsigned char mic[8];
 };
 
 
@@ -203,7 +203,7 @@ struct Michael
 /* Used for own RC4 implementation */
 struct rc4_state
 {
-    int x, y, m[256];
+  int x, y, m[256];
 };
 
 struct AP_info;
@@ -216,7 +216,7 @@ int check_crc_buf( unsigned char *buf, int len );
 int calc_crc_buf( unsigned char *buf, int len );
 void calc_mic_custom(struct WPA_hdsk *wpa, unsigned char *bssid, unsigned char *pmk, unsigned char *ptk, unsigned char *mic);
 void calc_mic(struct AP_info *ap, unsigned char *pmk, unsigned char *ptk,
-	      unsigned char *mic);
+    unsigned char *mic);
 int known_clear(void *clear, int *clen, int *weight, unsigned char *wh, int len);
 int add_crc32(unsigned char* data, int length);
 int add_crc32_plain(unsigned char* data, int length);
