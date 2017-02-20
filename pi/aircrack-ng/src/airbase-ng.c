@@ -2790,6 +2790,83 @@ int initiate_handshake()
   return 0;
 }
 
+// TODO: should probable pass in `packet`'s length as well
+int continue_handshake(unsigned char *packet, unsigned int length)
+{
+  unsigned z;
+  z = ( ( packet[1] & 3 ) != 3 ) ? 24 : 30;
+
+  // SNAP is offset by two extra bytes in a QoS data frame
+  if (packet[0] == 0x88)
+    z += 2;
+    
+  // Add four to the eapol length to include the eapol "header" (which is four bytes)
+  // and not accounted for in the eapol length field
+  G.st_cur->wpa.eapol_size = ( packet[z + 8 + 2] << 8 ) + packet[z + 8 + 3] + 4;
+
+  // TODO: support a QoS data packet for handshake packet #2, which corresponds
+  // with `- 100` below
+  // if ((unsigned)length - z - 10 < st_cur->wpa.eapol_size  || st_cur->wpa.eapol_size == 0 ||
+  if ((unsigned)length - z - 8 < G.st_cur->wpa.eapol_size  || G.st_cur->wpa.eapol_size == 0 ||
+      G.st_cur->wpa.eapol_size > sizeof(G.st_cur->wpa.eapol))
+  {
+    // Ignore the packet trying to crash us.
+    G.st_cur->wpa.eapol_size = 0;
+    return 1;
+  }
+
+  // Copy s-nonce insto `st_cur->wpa.snonce`
+  memcpy( G.st_cur->wpa.snonce, &packet[z + 8 + 17], 32 );
+  G.st_cur->wpa.state |= 2;
+
+  // Copy the MIC of `packet` into `wpa.keymic`
+  memcpy( G.st_cur->wpa.keymic, &packet[z + 8 + 81], 16 );
+  // Copy all the EAPOL bytes of `packet` into `wpa.eapol`
+  memcpy( G.st_cur->wpa.eapol,  &packet[z + 8], G.st_cur->wpa.eapol_size );
+  // Reset MIC of `wpa.eapol` to zeros
+  memset( G.st_cur->wpa.eapol + 81, 0, 16 );
+  G.st_cur->wpa.state |= 4;
+  G.st_cur->wpa.keyver = packet[z + 8 + 6] & 7;
+
+  memcpy( G.st_cur->wpa.stmac, G.st_cur->stmac, 6 );
+
+  store_wpa_handshake(G.st_cur);
+
+  if(!opt.quiet)
+  {
+    PCT;
+
+    printf("Got WPA handshake from %02X:%02X:%02X:%02X:%02X:%02X\n",
+        G.source_mac[0],
+        G.source_mac[1],
+        G.source_mac[2],
+        G.source_mac[3],
+        G.source_mac[4],
+        G.source_mac[5]);
+
+    unsigned char pmk[40];
+    // TODO: the password shouldn't be hardcoded in the future
+    calc_pmk("Petalway", G.st_cur->essid, pmk);
+    int i;
+    for (i = 0; i < 32; i++) {
+      if( i % 16 == 0 ) printf("\n    ");
+      printf(" %02X", pmk[i]);
+    }
+
+    unsigned char ptk[80];
+    int mic_match = calc_ptk_custom(&G.st_cur->wpa, G.bssid, pmk, ptk);
+    printf("\nmic_match: %i", mic_match);
+
+    // unsigned char test_mic[16];
+    // calc_mic_custom(&G.st_cur->wpa, bssid, pmk, ptk, test_mic);
+    // printf("\n[*] calculated mic:");
+    // for (i = 0; i < 16; i++) { printf(" %02X", test_mic[i]); }
+  }
+
+  return 0;
+}
+
+// TODO: should probable pass in `packet`'s length as well
 int send_association_response(unsigned char *packet)
 {
   int reasso;
@@ -3216,68 +3293,8 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
         }
 
         // if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x01\x03", 10) == 0)
-        if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x02\x03", 10) == 0)
-        {
-          // Add four to the eapol length to include the eapol "header" (which is four bytes)
-          // and not accounted for in the eapol length field
-          st_cur->wpa.eapol_size = ( packet[z + 8 + 2] << 8 ) + packet[z + 8 + 3] + 4;
-
-          // TODO: support a QoS data packet for handshake packet #2, which corresponds
-          // with `- 100` below
-          // if ((unsigned)length - z - 10 < st_cur->wpa.eapol_size  || st_cur->wpa.eapol_size == 0 ||
-          if ((unsigned)length - z - 8 < st_cur->wpa.eapol_size  || st_cur->wpa.eapol_size == 0 ||
-              st_cur->wpa.eapol_size > sizeof(st_cur->wpa.eapol))
-          {
-            // Ignore the packet trying to crash us.
-            st_cur->wpa.eapol_size = 0;
-            return 1;
-          }
-
-          // Copy s-nonce insto `st_cur->wpa.snonce`
-          memcpy( st_cur->wpa.snonce, &packet[z + 8 + 17], 32 );
-          st_cur->wpa.state |= 2;
-
-          // Copy the MIC of `packet` into `wpa.keymic`
-          memcpy( st_cur->wpa.keymic, &packet[z + 8 + 81], 16 );
-          // Copy all the EAPOL bytes of `packet` into `wpa.eapol`
-          memcpy( st_cur->wpa.eapol,  &packet[z + 8], st_cur->wpa.eapol_size );
-          // Reset MIC of `wpa.eapol` to zeros
-          memset( st_cur->wpa.eapol + 81, 0, 16 );
-          st_cur->wpa.state |= 4;
-          st_cur->wpa.keyver = packet[z + 8 + 6] & 7;
-
-          memcpy( st_cur->wpa.stmac, st_cur->stmac, 6 );
-
-          store_wpa_handshake(st_cur);
-
-          if(!opt.quiet)
-          {
-            PCT;
-            
-            printf("Got WPA handshake from %02X:%02X:%02X:%02X:%02X:%02X\n",
-                smac[0],smac[1],smac[2],smac[3],smac[4],smac[5]);
-            
-            unsigned char pmk[40];
-            // TODO: the password shouldn't be hardcoded in the future
-            calc_pmk("Petalway", apc->essid, pmk);
-            for (i = 0; i < 32; i++) {
-              if( i % 16 == 0 ) printf("\n    ");
-              printf(" %02X", pmk[i]);
-            }
-
-            unsigned char ptk[80];
-            int mic_match = calc_ptk_custom(&st_cur->wpa, bssid, pmk, ptk);
-            printf("\nmic_match: %i", mic_match);
-
-            unsigned char test_mic[16];
-            calc_mic_custom(&st_cur->wpa, bssid, pmk, ptk, test_mic);
-
-            printf("\n[*] calculated mic:");
-            for (i = 0; i < 16; i++) { printf(" %02X", test_mic[i]); }
-          }
-
-          return 0;
-        }
+        if (opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x02\x03", 10) == 0)
+          continue_handshake(packet, length);
       }
     }
     else
