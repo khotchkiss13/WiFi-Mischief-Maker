@@ -2684,7 +2684,6 @@ void print_G()
 
 int initiate_handshake()
 {
-  int i;
   int len;
 
   printf("%s\n", "Sending 1st handshake packet");
@@ -2692,11 +2691,11 @@ int initiate_handshake()
 
   if (opt.use_fixed_nonce) {
     memcpy(G.st_cur->wpa.anonce, opt.fixed_nonce, 32);
-  } else {
-    // TODO: don't hardcode the anonce for now
-    for(i=0; i<32; i++)
-      // st_cur->wpa.anonce[i] = rand()&0xFF;
-      G.st_cur->wpa.anonce[i] = 0x55;
+  } else if (!G.st_cur->valid_anonce) {
+    int i;
+    for (i = 0; i < 32; i++)
+      G.st_cur->wpa.anonce[i] = rand()&0xFF;
+    G.st_cur->valid_anonce = 1;
   }
 
   G.st_cur->wpa.state |= 1;
