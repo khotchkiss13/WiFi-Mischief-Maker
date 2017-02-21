@@ -246,6 +246,8 @@ void calc_pmk( char *key, char *essid_pre, unsigned char pmk[32] )
 }
 
 void calc_mic_custom (struct WPA_hdsk *wpa,
+    unsigned char *eapol,
+    unsigned int eapol_size,
     unsigned char bssid[8],
     unsigned char pmk[32],
     unsigned char ptk[80],
@@ -315,11 +317,11 @@ void calc_mic_custom (struct WPA_hdsk *wpa,
 
   if( wpa->keyver == 1 )
   {
-    HMAC(EVP_md5(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL);
+    HMAC(EVP_md5(), ptk, 16, eapol, eapol_size, mic, NULL);
   }
   else
   {
-    HMAC(EVP_sha1(), ptk, 16, wpa->eapol, wpa->eapol_size, mic, NULL);
+    HMAC(EVP_sha1(), ptk, 16, eapol, eapol_size, mic, NULL);
   }
 }
 

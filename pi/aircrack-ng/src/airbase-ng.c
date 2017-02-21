@@ -225,7 +225,7 @@ struct globals
 
 struct options
 {
-  struct ST_info *st_1st, *st_end;
+  struct ST_info *st_head, *st_tail;
 
   unsigned char r_bssid[6];
   unsigned char r_dmac[6];
@@ -383,6 +383,7 @@ struct ST_info
   int missed;              /* number of missed packets  */
   unsigned int lastseq;    /* last seen sequnce number  */
   struct WPA_hdsk wpa;     /* WPA handshake data        */
+  int valid_anonce;        /* indicates anonce exists   */
   int wpatype;             /* 1=wpa1 2=wpa2             */
   int wpahash;             /* 1=md5(tkip) 2=sha1(ccmp)  */
   int wep;                 /* capability encryption bit */
@@ -2600,7 +2601,7 @@ int store_wpa_handshake(struct ST_info *st_cur)
 
 struct ST_info *find_or_add_client(unsigned char smac[6])
 {
-  struct ST_info *st_cur = opt.st_1st;
+  struct ST_info *st_cur = opt.st_head;
   struct ST_info *st_prv = NULL;
 
   while( st_cur != NULL )
@@ -2625,8 +2626,8 @@ struct ST_info *find_or_add_client(unsigned char smac[6])
 
     memset( st_cur, 0, sizeof( struct ST_info ) );
 
-    if( opt.st_1st == NULL )
-      opt.st_1st = st_cur;
+    if( opt.st_head == NULL )
+      opt.st_head = st_cur;
     else
       st_prv->next = st_cur;
 
@@ -2643,6 +2644,7 @@ struct ST_info *find_or_add_client(unsigned char smac[6])
 
     st_cur->probe_index = -1;
     st_cur->missed  = 0;
+    st_cur->valid_anonce = 0;
     st_cur->lastseq = 0;
     gettimeofday( &(st_cur->ftimer), NULL);
 
@@ -2661,7 +2663,7 @@ struct ST_info *find_or_add_client(unsigned char smac[6])
     st_cur->wpahash = 0;
     st_cur->wep = 0;
 
-    opt.st_end = st_cur;
+    opt.st_tail = st_cur;
   }
   
   return st_cur;
@@ -2680,11 +2682,310 @@ void print_G()
   }
 }
 
+int initiate_handshake()
+{
+  int len;
+
+  printf("%s\n", "Sending 1st handshake packet");
+  G.st_cur->wpa.state = 0;
+
+  if (opt.use_fixed_nonce) {
+    memcpy(G.st_cur->wpa.anonce, opt.fixed_nonce, 32);
+  } else if (!G.st_cur->valid_anonce) {
+    int i;
+    for (i = 0; i < 32; i++)
+      G.st_cur->wpa.anonce[i] = rand()&0xFF;
+    G.st_cur->valid_anonce = 1;
+  }
+
+  G.st_cur->wpa.state |= 1;
+
+  /* build first eapol frame */
+  // x08 = data frame or x88 = QoS data frame
+  // x02 = frame fromDS (toDS: 0, fromDS: 1)
+  // xd500 = frame duration
+  memcpy(h80211, "\x88\x02\xd5\x00", 4);
+  len = 4;
+
+  memcpy(h80211+len, G.source_mac, 6);
+  len += 6;
+  memcpy(h80211+len, G.bssid, 6);
+  len += 6;
+  memcpy(h80211+len, G.bssid, 6);
+  len += 6;
+
+  // Sequence and fragment numbers
+  h80211[len] = 0x00;
+  h80211[len+1] = 0x00;
+  len += 2;
+
+  // QoS = uncomment on x88 (QoS data frame) use
+  h80211[len] = 0x06;
+  h80211[len+1] = 0x00;
+  len += 2;
+
+  // LLC and SNAP
+  memcpy(h80211+len, "\xAA\xAA\x03\x00\x00\x00\x88\x8E", 8);
+  len += 8;
+
+  // EAPOL
+  memset(h80211+len, 0, 99);
+  h80211[len]    = 0x02;//version
+  h80211[len+1]  = 0x03;//type
+  h80211[len+2]  = 0x00;
+  h80211[len+3]  = 0x5F;//len
+  if(opt.wpa1type)
+    h80211[len+4]  = 0xFE; //WPA1
+
+  if(opt.wpa2type)
+    h80211[len+4]  = 0x02; //WPA2
+
+  if(!opt.wpa1type && !opt.wpa2type)
+  {
+    if(G.st_cur->wpatype == 1) //WPA1
+      h80211[len+4]  = 0xFE; //WPA1
+    else
+      h80211[len+4]  = 0x02; //WPA2
+  }
+
+  // Key information
+  if(opt.sendeapol >= 1 && opt.sendeapol <= 2) //specified
+  {
+    if(opt.sendeapol == 1) //MD5
+    {
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x89;
+    }
+    else //SHA1
+    {
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x8a;
+    }
+  }
+  else //from asso
+  {
+    if(G.st_cur->wpahash == 1) //MD5
+    {
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x89;
+    }
+    else if(G.st_cur->wpahash == 2) //SHA1
+    {
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x8a;
+    }
+  }
+
+  // Key length = 0x0020 => 16 bytes
+  h80211[len+7] = 0x00;
+  h80211[len+8] = 0x10;
+
+  // Nonce
+  memset(h80211+len+9, 0, 90);
+  memcpy(h80211+len+17, G.st_cur->wpa.anonce, 32);
+
+  len+=99;
+
+  send_packet(h80211, len);
+  return 0;
+}
+
+// TODO: should probable pass in `packet`'s length as well
+int continue_handshake(unsigned char *packet, unsigned int length)
+{
+  unsigned int len;
+
+  unsigned int z;
+  z = ( ( packet[1] & 3 ) != 3 ) ? 24 : 30;
+
+  // SNAP is offset by two extra bytes in a QoS data frame
+  if (packet[0] == 0x88)
+    z += 2;
+    
+  // Add four to the eapol length to include the eapol "header" (which is four bytes)
+  // and not accounted for in the eapol length field
+  G.st_cur->wpa.eapol_size = ( packet[z + 8 + 2] << 8 ) + packet[z + 8 + 3] + 4;
+
+  // TODO: support a QoS data packet for handshake packet #2, which corresponds
+  // with `- 100` below
+  // if ((unsigned)length - z - 10 < st_cur->wpa.eapol_size  || st_cur->wpa.eapol_size == 0 ||
+  if ((unsigned)length - z - 8 < G.st_cur->wpa.eapol_size  || G.st_cur->wpa.eapol_size == 0 ||
+      G.st_cur->wpa.eapol_size > sizeof(G.st_cur->wpa.eapol))
+  {
+    // Ignore the packet trying to crash us.
+    G.st_cur->wpa.eapol_size = 0;
+    return 1;
+  }
+
+  // Copy s-nonce insto `st_cur->wpa.snonce`
+  memcpy( G.st_cur->wpa.snonce, &packet[z + 8 + 17], 32 );
+  G.st_cur->wpa.state |= 2;
+
+  // Copy the MIC of `packet` into `wpa.keymic`
+  memcpy( G.st_cur->wpa.keymic, &packet[z + 8 + 81], 16 );
+  // Copy all the EAPOL bytes of `packet` into `wpa.eapol`
+  memcpy( G.st_cur->wpa.eapol,  &packet[z + 8], G.st_cur->wpa.eapol_size );
+  // Reset MIC of `wpa.eapol` to zeros
+  memset( G.st_cur->wpa.eapol + 81, 0, 16 );
+  G.st_cur->wpa.state |= 4;
+  G.st_cur->wpa.keyver = packet[z + 8 + 6] & 7;
+
+  memcpy( G.st_cur->wpa.stmac, G.st_cur->stmac, 6 );
+
+  store_wpa_handshake(G.st_cur);
+
+  if(!opt.quiet)
+  {
+    PCT;
+
+    printf("Got WPA handshake from %02X:%02X:%02X:%02X:%02X:%02X\n",
+      G.source_mac[0],
+      G.source_mac[1],
+      G.source_mac[2],
+      G.source_mac[3],
+      G.source_mac[4],
+      G.source_mac[5]);
+
+    unsigned char pmk[40];
+    // TODO: the password shouldn't be hardcoded in the future
+    calc_pmk("Petalway", G.st_cur->essid, pmk);
+    // int i;
+    // for (i = 0; i < 32; i++)
+    // {
+    //   if( i % 16 == 0 ) printf("\n    ");
+    //   printf(" %02X", pmk[i]);
+    // }
+  }
+
+
+  /* build first eapol frame */
+  // x08 = data frame or x88 = QoS data frame
+  // x02 = frame fromDS (toDS: 0, fromDS: 1)
+  // xd500 = frame duration
+  memcpy(h80211, "\x88\x02\xd5\x00", 4);
+  len = 4;
+
+  memcpy(h80211+len, G.source_mac, 6);
+  len += 6;
+  memcpy(h80211+len, G.bssid, 6);
+  len += 6;
+  memcpy(h80211+len, G.bssid, 6);
+  len += 6;
+
+  // Sequence and fragment numbers
+  h80211[len] = 0x10;
+  h80211[len+1] = 0x00;
+  len += 2;
+
+  // QoS = uncomment on x88 (QoS data frame) use
+  h80211[len] = 0x06;
+  h80211[len+1] = 0x00;
+  len += 2;
+
+  // LLC and SNAP
+  memcpy(h80211+len, "\xAA\xAA\x03\x00\x00\x00\x88\x8E", 8);
+  len += 8;
+
+  // EAPOL
+  memset(h80211+len, 0, 99);
+  h80211[len]    = 0x02;//version
+  h80211[len+1]  = 0x03;//type
+  h80211[len+2]  = 0x00;
+  h80211[len+3]  = 0x75;//len
+  if(opt.wpa1type)
+    h80211[len+4]  = 0xFE; //WPA1
+
+  if(opt.wpa2type)
+    h80211[len+4]  = 0x02; //WPA2
+
+  // TODO: what's the point of this if?
+  if(!opt.wpa1type && !opt.wpa2type)
+  {
+    if(G.st_cur->wpatype == 1) //WPA1
+      h80211[len+4]  = 0xFE; //WPA1
+    else
+      h80211[len+4]  = 0x02; //WPA2
+  }
+
+  // Key information
+  if(opt.sendeapol >= 1 && opt.sendeapol <= 2) //specified
+  {
+    if(opt.sendeapol == 1) //MD5
+    {
+      // TODO: MD5 values here are wrong
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x89;
+    }
+    else //SHA1
+    {
+      h80211[len+5] = 0x01;
+      h80211[len+6] = 0xCA;
+    }
+  }
+  else //from asso
+  {
+    // TODO: MD5 values here are wrong
+    if(G.st_cur->wpahash == 1) //MD5
+    {
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x89;
+    }
+    else if(G.st_cur->wpahash == 2) //SHA1
+    {
+      h80211[len+5] = 0x01;
+      h80211[len+6] = 0xCA;
+    }
+  }
+
+  // Key length = 0x0020 => 16 bytes
+  h80211[len+7] = 0x00;
+  h80211[len+8] = 0x10;
+  len += 9;
+  // TODO: replay counter probably shouldn't be hardcoded
+  memset(h80211+len, 0, 90);
+  h80211[len + 7] = 0x01;
+  memcpy(h80211+len+8, G.st_cur->wpa.anonce, 32);
+  len += 40;
+
+  // Leave key IV as zeros
+  len += 16;
+  // Leave RSC as zeros for now
+  len += 8;
+
+  // Leave key ID as zeros
+  len += 8;
+
+  // Skip 16 bytes for MIC
+  len += 16;
+  // TODO: don't hardcode 24 in, this is trying
+  // to send the RSN IE
+  memcpy(h80211 + len, packet + len - 2, 24);
+  len += 24;
+
+  unsigned char pmk[40];
+  // TODO: the password shouldn't be hardcoded in the future
+  calc_pmk("Petalway", G.st_cur->essid, pmk);
+
+  unsigned char ptk[80];
+  int mic_match = calc_ptk_custom(&G.st_cur->wpa, G.bssid, pmk, ptk);
+  // printf("\nmic_match: %i", mic_match);
+
+  unsigned char mic[20];
+  printf("Len: %u\n", len);
+  calc_mic_custom(&G.st_cur->wpa, h80211 + 34, len - 34, G.bssid, pmk, ptk, mic);
+  memcpy(h80211 + len - 40, mic, 16);
+
+  send_packet(h80211, len);
+  return 0;
+}
+
+// TODO: should probable pass in `packet`'s length as well
 int send_association_response(unsigned char *packet)
 {
   int reasso;
   int tags_offset;
-  int len, i;
+
+  int len;
 
   char essid[256];
 
@@ -2710,8 +3011,6 @@ int send_association_response(unsigned char *packet)
   }
 
   G.st_cur->wep = (packet[z] & 0x10) >> 4;
-  
-  print_G();
 
   // `len` is a really function-global variable used for various
   // seemingly unrelated functions - here it stores length of an essid
@@ -2820,112 +3119,9 @@ int send_association_response(unsigned char *packet)
   G.st_cur->essid_length = strlen(essid);
   memset(essid, 0, 256);
 
-
   // Send 1st handshake packet
   if( (opt.sendeapol && ( opt.wpa1type || opt.wpa2type ) ) || (G.st_cur->wpatype && G.st_cur->wpahash) )
-  {
-    printf("%s\n", "Sending 1st handshake packet");
-    G.st_cur->wpa.state = 0;
-
-    if (opt.use_fixed_nonce) {
-      memcpy(G.st_cur->wpa.anonce, opt.fixed_nonce, 32);
-    } else {
-      // TODO: don't hardcode the anonce for now
-      for(i=0; i<32; i++)
-        // st_cur->wpa.anonce[i] = rand()&0xFF;
-        G.st_cur->wpa.anonce[i] = 0x55;
-    }
-
-    G.st_cur->wpa.state |= 1;
-
-    /* build first eapol frame */
-    // x08 = data frame or x88 = QoS data frame
-    // x02 = frame fromDS (toDS: 0, fromDS: 1)
-    // xd500 = frame duration
-    memcpy(h80211, "\x88\x02\xd5\x00", 4);
-    len = 4;
-
-    memcpy(h80211+len, G.source_mac, 6);
-    len += 6;
-    memcpy(h80211+len, G.bssid, 6);
-    len += 6;
-    memcpy(h80211+len, G.bssid, 6);
-    len += 6;
-
-    // Sequence and fragment numbers
-    h80211[len] = 0x00;
-    h80211[len+1] = 0x00;
-    len += 2;
-
-    // QoS = uncomment on x88 (QoS data frame) use
-    h80211[len] = 0x06;
-    h80211[len+1] = 0x00;
-    len += 2;
-
-    // LLC and SNAP
-    memcpy(h80211+len, "\xAA\xAA\x03\x00\x00\x00\x88\x8E", 8);
-    len += 8;
-
-    // EAPOL
-    memset(h80211+len, 0, 99);
-    h80211[len]    = 0x02;//version
-    h80211[len+1]  = 0x03;//type
-    h80211[len+2]  = 0x00;
-    h80211[len+3]  = 0x5F;//len
-    if(opt.wpa1type)
-      h80211[len+4]  = 0xFE; //WPA1
-
-    if(opt.wpa2type)
-      h80211[len+4]  = 0x02; //WPA2
-
-    if(!opt.wpa1type && !opt.wpa2type)
-    {
-      if(G.st_cur->wpatype == 1) //WPA1
-        h80211[len+4]  = 0xFE; //WPA1
-      else
-        h80211[len+4]  = 0x02; //WPA2
-    }
-
-    // Key information
-    if(opt.sendeapol >= 1 && opt.sendeapol <= 2) //specified
-    {
-      if(opt.sendeapol == 1) //MD5
-      {
-        h80211[len+5] = 0x00;
-        h80211[len+6] = 0x89;
-      }
-      else //SHA1
-      {
-        h80211[len+5] = 0x00;
-        h80211[len+6] = 0x8a;
-      }
-    }
-    else //from asso
-    {
-      if(G.st_cur->wpahash == 1) //MD5
-      {
-        h80211[len+5] = 0x00;
-        h80211[len+6] = 0x89;
-      }
-      else if(G.st_cur->wpahash == 2) //SHA1
-      {
-        h80211[len+5] = 0x00;
-        h80211[len+6] = 0x8a;
-      }
-    }
-
-    // Key length = 0x0020 => 16 bytes
-    h80211[len+7] = 0x00;
-    h80211[len+8] = 0x10;
-
-    // Nonce
-    memset(h80211+len+9, 0, 90);
-    memcpy(h80211+len+17, G.st_cur->wpa.anonce, 32);
-
-    len+=99;
-
-    send_packet(h80211, len);
-  }
+    initiate_handshake();
 
   return 0;
 }
@@ -3066,7 +3262,7 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     seqnum = (packet[22] >> 4) | (packet[23] << 4);
     morefrag = packet[1] & 0x04;
 
-    printf("frag: %d, morefrag: %d\n", fragnum, morefrag);
+    // printf("frag: %d, morefrag: %d\n", fragnum, morefrag);
 
     /* Fragment? */
     if(fragnum > 0 || morefrag)
@@ -3208,68 +3404,8 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
         }
 
         // if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x01\x03", 10) == 0)
-        if(opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x02\x03", 10) == 0)
-        {
-          // Add four to the eapol length to include the eapol "header" (which is four bytes)
-          // and not accounted for in the eapol length field
-          st_cur->wpa.eapol_size = ( packet[z + 8 + 2] << 8 ) + packet[z + 8 + 3] + 4;
-
-          // TODO: support a QoS data packet for handshake packet #2, which corresponds
-          // with `- 100` below
-          // if ((unsigned)length - z - 10 < st_cur->wpa.eapol_size  || st_cur->wpa.eapol_size == 0 ||
-          if ((unsigned)length - z - 8 < st_cur->wpa.eapol_size  || st_cur->wpa.eapol_size == 0 ||
-              st_cur->wpa.eapol_size > sizeof(st_cur->wpa.eapol))
-          {
-            // Ignore the packet trying to crash us.
-            st_cur->wpa.eapol_size = 0;
-            return 1;
-          }
-
-          // Copy s-nonce insto `st_cur->wpa.snonce`
-          memcpy( st_cur->wpa.snonce, &packet[z + 8 + 17], 32 );
-          st_cur->wpa.state |= 2;
-
-          // Copy the MIC of `packet` into `wpa.keymic`
-          memcpy( st_cur->wpa.keymic, &packet[z + 8 + 81], 16 );
-          // Copy all the EAPOL bytes of `packet` into `wpa.eapol`
-          memcpy( st_cur->wpa.eapol,  &packet[z + 8], st_cur->wpa.eapol_size );
-          // Reset MIC of `wpa.eapol` to zeros
-          memset( st_cur->wpa.eapol + 81, 0, 16 );
-          st_cur->wpa.state |= 4;
-          st_cur->wpa.keyver = packet[z + 8 + 6] & 7;
-
-          memcpy( st_cur->wpa.stmac, st_cur->stmac, 6 );
-
-          store_wpa_handshake(st_cur);
-
-          if(!opt.quiet)
-          {
-            PCT;
-            
-            printf("Got WPA handshake from %02X:%02X:%02X:%02X:%02X:%02X\n",
-                smac[0],smac[1],smac[2],smac[3],smac[4],smac[5]);
-            
-            unsigned char pmk[40];
-            // TODO: the password shouldn't be hardcoded in the future
-            calc_pmk("Petalway", apc->essid, pmk);
-            for (i = 0; i < 32; i++) {
-              if( i % 16 == 0 ) printf("\n    ");
-              printf(" %02X", pmk[i]);
-            }
-
-            unsigned char ptk[80];
-            int mic_match = calc_ptk_custom(&st_cur->wpa, bssid, pmk, ptk);
-            printf("\nmic_match: %i", mic_match);
-
-            unsigned char test_mic[16];
-            calc_mic_custom(&st_cur->wpa, bssid, pmk, ptk, test_mic);
-
-            printf("\n[*] calculated mic:");
-            for (i = 0; i < 16; i++) { printf(" %02X", test_mic[i]); }
-          }
-
-          return 0;
-        }
+        if (opt.sendeapol && memcmp(packet+z, "\xAA\xAA\x03\x00\x00\x00\x88\x8E\x02\x03", 10) == 0)
+          continue_handshake(packet, length);
       }
     }
     else

@@ -214,7 +214,7 @@ int decrypt_wep( unsigned char *data, int len, unsigned char *key, int keylen );
 int encrypt_wep( unsigned char *data, int len, unsigned char *key, int keylen );
 int check_crc_buf( unsigned char *buf, int len );
 int calc_crc_buf( unsigned char *buf, int len );
-void calc_mic_custom(struct WPA_hdsk *wpa, unsigned char *bssid, unsigned char *pmk, unsigned char *ptk, unsigned char *mic);
+void calc_mic_custom(struct WPA_hdsk *wpa, unsigned char *eapol, unsigned int eapol_size, unsigned char *bssid, unsigned char *pmk, unsigned char *ptk, unsigned char *mic);
 void calc_mic(struct AP_info *ap, unsigned char *pmk, unsigned char *ptk,
     unsigned char *mic);
 int known_clear(void *clear, int *clen, int *weight, unsigned char *wh, int len);
