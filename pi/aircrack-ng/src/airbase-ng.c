@@ -492,10 +492,49 @@ int addESSID(char* essid, int len, int expiration)
   return 0;
 }
 
+void associate_with_ap()
+{
+  unsigned char ap_mac[6];
+  unsigned char payload[200];
+
+  // Current position during packet creation
+  unsigned int p = 0;
+
+  payload[p] = 0x00;
+  payload[p + 1] = 0x00;
+  p += 2;
+  
+  // Duration
+  payload[p] = 0x3a;
+  payload[p] = 0x01;
+  p += 2;
+
+  // Destination mac, source mac, and bssid
+  memcpy(payload + p, ap_mac, 6);
+  p += 6;
+  memcpy(payload + p, G.bssid, 6);
+  p += 6;
+  memcpy(payload + p, ap_mac, 6);
+  p += 6;
+
+  // Sequence number
+  payload[p] = 0x00;
+  payload[p + 1] = 0x00;
+  p += 2;
+
+  // 802.11 LAN management capabilities
+  payload[p] = 0x31;
+  payload[p + 1] = 0x04;
+  p += 2;
+
+  // 802.11 LAN listen interval
+  payload[p] = 0x14;
+  payload[p] = 0x00;
+  p += 2;
+}
+
 int capture_packet(unsigned char* packet, int length)
 {
-  if (packet[0] == 0x80) return 1;
-
   struct pcap_pkthdr pkh;
   struct timeval tv;
   int n;
