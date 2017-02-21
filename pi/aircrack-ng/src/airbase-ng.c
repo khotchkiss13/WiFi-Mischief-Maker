@@ -2849,20 +2849,12 @@ int continue_handshake(unsigned char *packet, unsigned int length)
     unsigned char pmk[40];
     // TODO: the password shouldn't be hardcoded in the future
     calc_pmk("Petalway", G.st_cur->essid, pmk);
-    int i;
-    for (i = 0; i < 32; i++) {
-      if( i % 16 == 0 ) printf("\n    ");
-      printf(" %02X", pmk[i]);
-    }
-
-    unsigned char ptk[80];
-    int mic_match = calc_ptk_custom(&G.st_cur->wpa, G.bssid, pmk, ptk);
-    printf("\nmic_match: %i", mic_match);
-
-    // unsigned char test_mic[16];
-    // calc_mic_custom(&G.st_cur->wpa, bssid, pmk, ptk, test_mic);
-    // printf("\n[*] calculated mic:");
-    // for (i = 0; i < 16; i++) { printf(" %02X", test_mic[i]); }
+    // int i;
+    // for (i = 0; i < 32; i++)
+    // {
+    //   if( i % 16 == 0 ) printf("\n    ");
+    //   printf(" %02X", pmk[i]);
+    // }
   }
 
 
@@ -2976,7 +2968,7 @@ int continue_handshake(unsigned char *packet, unsigned int length)
 
   unsigned char ptk[80];
   int mic_match = calc_ptk_custom(&G.st_cur->wpa, G.bssid, pmk, ptk);
-  printf("\nmic_match: %i", mic_match);
+  // printf("\nmic_match: %i", mic_match);
 
   unsigned char mic[20];
   printf("Len: %u\n", len);
@@ -3019,8 +3011,6 @@ int send_association_response(unsigned char *packet)
   }
 
   G.st_cur->wep = (packet[z] & 0x10) >> 4;
-  
-  print_G();
 
   // `len` is a really function-global variable used for various
   // seemingly unrelated functions - here it stores length of an essid
@@ -3272,7 +3262,7 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     seqnum = (packet[22] >> 4) | (packet[23] << 4);
     morefrag = packet[1] & 0x04;
 
-    printf("frag: %d, morefrag: %d\n", fragnum, morefrag);
+    // printf("frag: %d, morefrag: %d\n", fragnum, morefrag);
 
     /* Fragment? */
     if(fragnum > 0 || morefrag)
