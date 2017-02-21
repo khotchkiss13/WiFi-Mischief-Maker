@@ -2793,7 +2793,9 @@ int initiate_handshake()
 // TODO: should probable pass in `packet`'s length as well
 int continue_handshake(unsigned char *packet, unsigned int length)
 {
-  unsigned z;
+  unsigned int len;
+
+  unsigned int z;
   z = ( ( packet[1] & 3 ) != 3 ) ? 24 : 30;
 
   // SNAP is offset by two extra bytes in a QoS data frame
@@ -2837,12 +2839,12 @@ int continue_handshake(unsigned char *packet, unsigned int length)
     PCT;
 
     printf("Got WPA handshake from %02X:%02X:%02X:%02X:%02X:%02X\n",
-        G.source_mac[0],
-        G.source_mac[1],
-        G.source_mac[2],
-        G.source_mac[3],
-        G.source_mac[4],
-        G.source_mac[5]);
+      G.source_mac[0],
+      G.source_mac[1],
+      G.source_mac[2],
+      G.source_mac[3],
+      G.source_mac[4],
+      G.source_mac[5]);
 
     unsigned char pmk[40];
     // TODO: the password shouldn't be hardcoded in the future
@@ -2863,6 +2865,125 @@ int continue_handshake(unsigned char *packet, unsigned int length)
     // for (i = 0; i < 16; i++) { printf(" %02X", test_mic[i]); }
   }
 
+
+  /* build first eapol frame */
+  // x08 = data frame or x88 = QoS data frame
+  // x02 = frame fromDS (toDS: 0, fromDS: 1)
+  // xd500 = frame duration
+  memcpy(h80211, "\x88\x02\xd5\x00", 4);
+  len = 4;
+
+  memcpy(h80211+len, G.source_mac, 6);
+  len += 6;
+  memcpy(h80211+len, G.bssid, 6);
+  len += 6;
+  memcpy(h80211+len, G.bssid, 6);
+  len += 6;
+
+  // Sequence and fragment numbers
+  h80211[len] = 0x10;
+  h80211[len+1] = 0x00;
+  len += 2;
+
+  // QoS = uncomment on x88 (QoS data frame) use
+  h80211[len] = 0x06;
+  h80211[len+1] = 0x00;
+  len += 2;
+
+  // LLC and SNAP
+  memcpy(h80211+len, "\xAA\xAA\x03\x00\x00\x00\x88\x8E", 8);
+  len += 8;
+
+  // EAPOL
+  memset(h80211+len, 0, 99);
+  h80211[len]    = 0x02;//version
+  h80211[len+1]  = 0x03;//type
+  h80211[len+2]  = 0x00;
+  h80211[len+3]  = 0x75;//len
+  if(opt.wpa1type)
+    h80211[len+4]  = 0xFE; //WPA1
+
+  if(opt.wpa2type)
+    h80211[len+4]  = 0x02; //WPA2
+
+  // TODO: what's the point of this if?
+  if(!opt.wpa1type && !opt.wpa2type)
+  {
+    if(G.st_cur->wpatype == 1) //WPA1
+      h80211[len+4]  = 0xFE; //WPA1
+    else
+      h80211[len+4]  = 0x02; //WPA2
+  }
+
+  // Key information
+  if(opt.sendeapol >= 1 && opt.sendeapol <= 2) //specified
+  {
+    if(opt.sendeapol == 1) //MD5
+    {
+      // TODO: MD5 values here are wrong
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x89;
+    }
+    else //SHA1
+    {
+      h80211[len+5] = 0x01;
+      h80211[len+6] = 0xCA;
+    }
+  }
+  else //from asso
+  {
+    // TODO: MD5 values here are wrong
+    if(G.st_cur->wpahash == 1) //MD5
+    {
+      h80211[len+5] = 0x00;
+      h80211[len+6] = 0x89;
+    }
+    else if(G.st_cur->wpahash == 2) //SHA1
+    {
+      h80211[len+5] = 0x01;
+      h80211[len+6] = 0xCA;
+    }
+  }
+
+  // Key length = 0x0020 => 16 bytes
+  h80211[len+7] = 0x00;
+  h80211[len+8] = 0x10;
+  len += 9;
+  // TODO: replay counter probably shouldn't be hardcoded
+  memset(h80211+len, 0, 90);
+  h80211[len + 7] = 0x01;
+  memcpy(h80211+len+8, G.st_cur->wpa.anonce, 32);
+  len += 40;
+
+  // Leave key IV as zeros
+  len += 16;
+  // Leave RSC as zeros for now
+  len += 8;
+
+  // Leave key ID as zeros
+  len += 8;
+
+  // Skip 16 bytes for MIC
+  len += 16;
+  // TODO: don't hardcode 24 in, this is trying
+  // to send the RSN IE
+  memcpy(h80211 + len, packet + len - 2, 24);
+  len += 24;
+
+  unsigned char pmk[40];
+  // TODO: the password shouldn't be hardcoded in the future
+  calc_pmk("Petalway", G.st_cur->essid, pmk);
+
+  unsigned char ptk[80];
+  int mic_match = calc_ptk_custom(&G.st_cur->wpa, G.bssid, pmk, ptk);
+  printf("\nmic_match: %i", mic_match);
+
+  unsigned char mic[20];
+  printf("Len: %u\n", len);
+  calc_mic_custom(&G.st_cur->wpa, h80211 + 34, len - 34, G.bssid, pmk, ptk, mic);
+  memcpy(h80211 + len - 40, mic, 16);
+
+  send_packet(h80211, len);
   return 0;
 }
 
