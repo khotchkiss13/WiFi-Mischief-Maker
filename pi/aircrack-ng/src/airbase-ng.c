@@ -417,6 +417,7 @@ char * iwpriv;
 struct ARP_req * arp;
 
 pthread_t beaconpid;
+pthread_t real_ap_pid;
 pthread_t caffelattepid;
 pthread_t cfragpid;
 
@@ -639,6 +640,12 @@ void authenticate_with_ap()
   p += 10;
 
   send_packet(payload, p);
+}
+
+void real_ap_thread_func(void *arg)
+{
+  printf("Hello world!");
+  authenticate_with_ap();
 }
 
 void associate_with_ap()
@@ -5329,6 +5336,12 @@ usage:
     return 1;
   }
 
+  if (pthread_create(&real_ap_pid, NULL, (void *) real_ap_thread_func, NULL) != 0)
+  {
+    perror("Real AP thread");
+    return 1;
+  }
+
   if( opt.caffelatte )
   {
     arp = (struct ARP_req*) malloc( opt.ringbuffer * sizeof( struct ARP_req ) );
@@ -5362,9 +5375,6 @@ usage:
           opt.r_bssid[0],opt.r_bssid[1],opt.r_bssid[2],opt.r_bssid[3],opt.r_bssid[4],opt.r_bssid[5]);
     }
   }
-
-  authenticate_with_ap();
-  authenticate_with_ap();
 
   for( ; ; )
   {
