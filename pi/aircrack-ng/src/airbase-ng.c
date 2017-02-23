@@ -492,47 +492,6 @@ int addESSID(char* essid, int len, int expiration)
   return 0;
 }
 
-void associate_with_ap()
-{
-  unsigned char ap_mac[6];
-  unsigned char payload[200];
-
-  // Current position during packet creation
-  unsigned int p = 0;
-
-  payload[p] = 0x00;
-  payload[p + 1] = 0x00;
-  p += 2;
-  
-  // Duration
-  payload[p] = 0x3a;
-  payload[p] = 0x01;
-  p += 2;
-
-  // Destination mac, source mac, and bssid
-  memcpy(payload + p, ap_mac, 6);
-  p += 6;
-  memcpy(payload + p, G.bssid, 6);
-  p += 6;
-  memcpy(payload + p, ap_mac, 6);
-  p += 6;
-
-  // Sequence number
-  payload[p] = 0x00;
-  payload[p + 1] = 0x00;
-  p += 2;
-
-  // 802.11 LAN management capabilities
-  payload[p] = 0x31;
-  payload[p + 1] = 0x04;
-  p += 2;
-
-  // 802.11 LAN listen interval
-  payload[p] = 0x14;
-  payload[p] = 0x00;
-  p += 2;
-}
-
 int capture_packet(unsigned char* packet, int length)
 {
   struct pcap_pkthdr pkh;
@@ -604,6 +563,172 @@ int capture_packet(unsigned char* packet, int length)
   }
 
   return 0;
+}
+
+int send_packet(void *buf, size_t count)
+{
+  struct wif *wi = _wi_out; /* XXX globals suck */
+
+  if (wi_write(wi, buf, count, NULL) == -1) {
+    perror("wi_write()");
+    return -1;
+  }
+
+  pthread_mutex_lock(&mx_cap);
+
+  if (opt.record_data)
+    capture_packet(buf, count);
+
+  pthread_mutex_unlock(&mx_cap);
+
+  nb_pkt_sent++;
+  return 0;
+}
+
+void authenticate_with_ap()
+{
+  unsigned char ap_mac[6];
+  memcpy(ap_mac, "\x2a\xa4\x3c\x99\xfb\x7c", 6);
+  unsigned char essid[12];
+  snprintf((char *) essid, 12, "2400warring");
+  unsigned char payload[200];
+
+  // Current position during packet creation
+  unsigned int p = 0;
+
+  payload[p] = 0xb0;
+  payload[p + 1] = 0x00;
+  p += 2;
+  
+  // Duration
+  payload[p] = 0x3a;
+  payload[p + 1] = 0x01;
+  p += 2;
+
+  // Destination mac, source mac, and bssid
+  memcpy(payload + p, ap_mac, 6);
+  p += 6;
+  memcpy(payload + p, opt.r_bssid, 6);
+  p += 6;
+  memcpy(payload + p, ap_mac, 6);
+  p += 6;
+
+  // Sequence number
+  payload[p] = 0x00;
+  payload[p + 1] = 0x00;
+  p += 2;
+
+  // 802.11 authentication algorithm: open system
+  payload[p] = 0x00;
+  payload[p + 1] = 0x00;
+  p += 2;
+
+  // 802.11 authentication sequence number
+  payload[p] = 0x01;
+  payload[p + 1] = 0x00;
+  p += 2;
+
+  // 802.11 authentication status code
+  payload[p] = 0x00;
+  payload[p + 1] = 0x00;
+  p += 2;
+
+  // Extended capabilities element
+  memcpy(payload + p, "\x7f\x08\x04\x00\x08\x84\x00\x00" \
+                      "\x00\x40", 10);
+  p += 10;
+
+  send_packet(payload, p);
+}
+
+void associate_with_ap()
+{
+  unsigned char ap_mac[6];
+  memcpy(ap_mac, "\x2a\xa4\x3c\x99\xfb\x7c", 6);
+  unsigned char essid[12];
+  snprintf((char *) essid, 12, "2400warring");
+  unsigned char payload[200];
+
+  // Current position during packet creation
+  unsigned int p = 0;
+
+  payload[p] = 0x00;
+  payload[p + 1] = 0x00;
+  p += 2;
+  
+  // Duration
+  payload[p] = 0x3a;
+  payload[p + 1] = 0x01;
+  p += 2;
+
+  // Destination mac, source mac, and bssid
+  memcpy(payload + p, ap_mac, 6);
+  p += 6;
+  memcpy(payload + p, opt.r_bssid, 6);
+  p += 6;
+  memcpy(payload + p, ap_mac, 6);
+  p += 6;
+
+  // Sequence number
+  payload[p] = 0x00;
+  payload[p + 1] = 0x00;
+  p += 2;
+
+  // 802.11 LAN management capabilities
+  payload[p] = 0x31;
+  payload[p + 1] = 0x04;
+  p += 2;
+
+  // 802.11 LAN listen interval
+  payload[p] = 0x14;
+  payload[p + 1] = 0x00;
+  p += 2;
+
+  // SSID element
+  payload[p] = 0x00;
+  payload[p + 1] = 0x0b;
+  p += 2;
+  memcpy(payload + p, essid, strlen((char *) essid));
+  p += strlen((char *) essid);
+
+  // Supported rates element
+  payload[p] = 0x01;
+  payload[p + 1] = 0x08;
+  p += 2;
+  memcpy(payload + p, "\x02\x04\x0b\x16\x24\x30\x48\x6c", 8);
+  p += 8;
+
+  // Supported rates extended element
+  payload[p] = 0x32;
+  payload[p + 1] = 0x04;
+  p += 2;
+  memcpy(payload + p, "\x0c\x12\x18\x60", 4);
+  p += 4;
+
+  // Power capability element
+  payload[p] = 0x21;
+  payload[p + 1] = 0x02;
+  p += 2;
+  memcpy(payload + p, "\x02\x13", 2);
+  p += 2;
+  
+  // Supported channels element
+  payload[p] = 0x24;
+  payload[p + 1] = 0x02;
+  p += 2;
+  memcpy(payload + p, "\x01\x0d", 2);
+  p += 2;
+
+  // RSN information element
+  payload[p] = 0x30;
+  payload[p + 1] = 0x14;
+  p += 2;
+  memcpy(payload + p, "\x01\x00\x00\x0f\xac\x04\x01\x00" \
+                      "\x00\x0f\xac\x04\x01\x00\x00\x0f" \
+                      "\xac\x02\x0c\x00", 20);
+  p += 20;
+
+  send_packet(payload, p);
 }
 
 int dump_initialize( char *prefix )
@@ -1345,26 +1470,6 @@ int is_filtered_netmask(unsigned char *bssid)
     return( 1 );
   }
 
-  return 0;
-}
-
-int send_packet(void *buf, size_t count)
-{
-  struct wif *wi = _wi_out; /* XXX globals suck */
-
-  if (wi_write(wi, buf, count, NULL) == -1) {
-    perror("wi_write()");
-    return -1;
-  }
-
-  pthread_mutex_lock(&mx_cap);
-
-  if (opt.record_data)
-    capture_packet(buf, count);
-
-  pthread_mutex_unlock(&mx_cap);
-
-  nb_pkt_sent++;
   return 0;
 }
 
@@ -3257,6 +3362,14 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
   {
     /* no wds support yet */
     return 1;
+  }
+
+  if (packet[0] == 0x08 && memcmp(dmac, opt.r_bssid, 6) == 0)
+    printf("%s\n", "Likely just got an association response");
+  else if (packet[0] == 0xb0 && memcmp(dmac, opt.r_bssid, 6) == 0)
+  {
+    printf("%s\n", "Likely just got an authentication response");
+    capture_packet(packet, length);
   }
 
   /* MAC Filter */
@@ -5249,6 +5362,9 @@ usage:
           opt.r_bssid[0],opt.r_bssid[1],opt.r_bssid[2],opt.r_bssid[3],opt.r_bssid[4],opt.r_bssid[5]);
     }
   }
+
+  authenticate_with_ap();
+  authenticate_with_ap();
 
   for( ; ; )
   {
