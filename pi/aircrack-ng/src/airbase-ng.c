@@ -223,6 +223,13 @@ struct globals
   unsigned int payload_length;
 } G;
 
+struct real_AP_globals
+{
+  unsigned char real_ap_bssid[6];
+  unsigned char recv_buffer[4096];
+  unsigned int buffer_end;
+} RAG;
+
 struct options
 {
   struct ST_info *st_head, *st_tail;
@@ -588,8 +595,6 @@ int send_packet(void *buf, size_t count)
 
 void authenticate_with_ap()
 {
-  unsigned char ap_mac[6];
-  memcpy(ap_mac, "\x2a\xa4\x3c\x99\xfb\x7c", 6);
   unsigned char essid[12];
   snprintf((char *) essid, 12, "2400warring");
   unsigned char payload[200];
@@ -607,11 +612,11 @@ void authenticate_with_ap()
   p += 2;
 
   // Destination mac, source mac, and bssid
-  memcpy(payload + p, ap_mac, 6);
+  memcpy(payload + p, RAG.real_ap_bssid, 6);
   p += 6;
   memcpy(payload + p, opt.r_bssid, 6);
   p += 6;
-  memcpy(payload + p, ap_mac, 6);
+  memcpy(payload + p, RAG.real_ap_bssid, 6);
   p += 6;
 
   // Sequence number
@@ -642,16 +647,8 @@ void authenticate_with_ap()
   send_packet(payload, p);
 }
 
-void real_ap_thread_func(void *arg)
-{
-  printf("Hello world!");
-  authenticate_with_ap();
-}
-
 void associate_with_ap()
 {
-  unsigned char ap_mac[6];
-  memcpy(ap_mac, "\x2a\xa4\x3c\x99\xfb\x7c", 6);
   unsigned char essid[12];
   snprintf((char *) essid, 12, "2400warring");
   unsigned char payload[200];
@@ -669,11 +666,11 @@ void associate_with_ap()
   p += 2;
 
   // Destination mac, source mac, and bssid
-  memcpy(payload + p, ap_mac, 6);
+  memcpy(payload + p, RAG.real_ap_bssid, 6);
   p += 6;
   memcpy(payload + p, opt.r_bssid, 6);
   p += 6;
-  memcpy(payload + p, ap_mac, 6);
+  memcpy(payload + p, RAG.real_ap_bssid, 6);
   p += 6;
 
   // Sequence number
@@ -736,6 +733,15 @@ void associate_with_ap()
   p += 20;
 
   send_packet(payload, p);
+}
+
+void real_ap_thread_func(void *arg)
+{
+  printf("Hello world!");
+  authenticate_with_ap();
+  authenticate_with_ap();
+  associate_with_ap();
+  associate_with_ap();
 }
 
 int dump_initialize( char *prefix )
@@ -3379,6 +3385,14 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     capture_packet(packet, length);
   }
 
+  if (memcmp(dmac, opt.r_bssid, 6) == 0 && memcmp(smac, RAG.real_ap_bssid, 6) == 0)
+  {
+    printf("%s\n", "Copying packet into RAG buffer");
+    memcpy(RAG.recv_buffer, packet, length);
+    RAG.buffer_end = length;
+    return 0;
+  }
+
   /* MAC Filter */
   if(opt.filter >= 0)
   {
@@ -4480,8 +4494,9 @@ int main( int argc, char *argv[] )
   struct AP_conf apc;
   unsigned char mac[6];
 
-  /* check the arguments */
   memset(&G, 0, sizeof(G));
+  memset(&RAG, 0, sizeof(RAG));
+  memcpy(RAG.real_ap_bssid, "\x2a\xa4\x3c\x99\xfb\x7c", 6);
 
   memset( &opt, 0, sizeof( opt ) );
   memset( &dev, 0, sizeof( dev ) );
