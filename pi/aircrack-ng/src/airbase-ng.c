@@ -619,8 +619,8 @@ void authenticate_with_ap()
   memcpy(payload + p, RAG.real_ap_bssid, 6);
   p += 6;
 
-  // Sequence number
-  payload[p] = 0x00;
+  // Fragment and sequence number
+  payload[p] = 0x10;
   payload[p + 1] = 0x00;
   p += 2;
 
@@ -643,6 +643,11 @@ void authenticate_with_ap()
   memcpy(payload + p, "\x7f\x08\x04\x00\x08\x84\x00\x00" \
                       "\x00\x40", 10);
   p += 10;
+
+  // Vendor specific element: Broadcom
+  memcpy(payload + p, "\xdd\x09\x00\x10\x18\x02\x00\x00" \
+                      "\x10\x00\x00", 11);
+  p += 11;
 
   send_packet(payload, p);
 }
@@ -732,12 +737,21 @@ void associate_with_ap()
                       "\xac\x02\x0c\x00", 20);
   p += 20;
 
+  // HT capabilities element
+  payload[p] = 0x2d;
+  payload[p + 1] = 0x1a;
+  p += 2;
+  memcpy(payload + p, "\x2d\x00\x17\xff\x00\x00\x00\x00" \
+                      "\x00\x00\x00\x00\x00\x00\x00\x00" \
+                      "\x00\x00\x00\x00\x00\x00\x00\x00" \
+                      "\x00\x00", 26);
+  p += 26;
+
   send_packet(payload, p);
 }
 
 void real_ap_thread_func(void *arg)
 {
-  printf("Hello world!");
   authenticate_with_ap();
   authenticate_with_ap();
   associate_with_ap();
