@@ -226,8 +226,11 @@ struct globals
 struct real_AP_globals
 {
   unsigned char real_ap_bssid[6];
+  
   unsigned char recv_buffer[4096];
-  unsigned int buffer_end;
+  pthread_mutex_t buffer_mutex;
+  pthread_cond_t buffer_cond;
+  unsigned int buffer_count;
 } RAG;
 
 struct options
@@ -750,12 +753,30 @@ void associate_with_ap()
   send_packet(payload, p);
 }
 
-void real_ap_thread_func(void *arg)
+int real_ap_thread_func(void *arg)
 {
   authenticate_with_ap();
-  authenticate_with_ap();
   associate_with_ap();
-  associate_with_ap();
+
+  while (1)
+  {
+    if (pthread_mutex_lock(&RAG.buffer_mutex) != 0)
+    {
+      perror("pthread mutex lock error");
+      return 0;
+    }
+
+    while (RAG.buffer_count == 0)
+      pthread_cond_wait(&RAG.buffer_cond, &RAG.buffer_mutex);
+
+    printf("There are %i packets to be recvd.\n", RAG.buffer_count);
+
+    if (pthread_mutex_unlock(&RAG.buffer_mutex) != 0)
+    {
+      perror("pthread mutex unlock error");
+      return 0;
+    }
+  }
 }
 
 int dump_initialize( char *prefix )
@@ -3401,9 +3422,23 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
 
   if (memcmp(dmac, opt.r_bssid, 6) == 0 && memcmp(smac, RAG.real_ap_bssid, 6) == 0)
   {
+    if (pthread_mutex_lock(&RAG.buffer_mutex) != 0)
+    {
+      perror("pthread mutex lock error");
+      return 0;
+    }
+
     printf("%s\n", "Copying packet into RAG buffer");
     memcpy(RAG.recv_buffer, packet, length);
-    RAG.buffer_end = length;
+    RAG.buffer_count += 1;
+
+    pthread_cond_signal(&RAG.buffer_cond);
+    if (pthread_mutex_unlock(&RAG.buffer_mutex) != 0)
+    {
+      perror("pthread mutex unlock error");
+      return 0;
+    }
+
     return 0;
   }
 
@@ -4509,8 +4544,12 @@ int main( int argc, char *argv[] )
   unsigned char mac[6];
 
   memset(&G, 0, sizeof(G));
+
   memset(&RAG, 0, sizeof(RAG));
   memcpy(RAG.real_ap_bssid, "\x2a\xa4\x3c\x99\xfb\x7c", 6);
+  pthread_mutex_init(&RAG.buffer_mutex, NULL);
+  pthread_cond_init(&RAG.buffer_cond, NULL);
+  RAG.buffer_count = 0;
 
   memset( &opt, 0, sizeof( opt ) );
   memset( &dev, 0, sizeof( dev ) );
