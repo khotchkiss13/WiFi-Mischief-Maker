@@ -6,6 +6,7 @@ sys.path.append(PY_PACKAGES)
 import paramiko 
 import threading
 import getpass
+import time
 
 answer = None
 
@@ -36,14 +37,19 @@ class workerThread (threading.Thread):
 				answer = line[-1]
 		
 	def construct_string(self):
-		return "./hashcat-3.30/hashcat64.bin -m 2500 ./warring_hashcat-01.hccap ./passwords-" + str(self.number) + ".txt --force --quiet --show"
+		# return 'ls'
+		return "./Downloads/hashcat-3.30/hashcat64.bin -m 2500 ./warring_hashcat-01.hccap ./passwords-" + str(self.number) + ".txt --force --quiet --show"
 
 #create new threads
+start = time.time()
 login = getpass.getuser()
 print("Logging in as " + login)
 threads = []
-current = 2
+current = 1
 while current <= 30:
+	if current == 16:
+		current += 1
+		continue
 	try:
 		thread = workerThread('hive'+str(current)+'.cs.berkeley.edu', login, current)
 		thread.start()
@@ -57,4 +63,5 @@ for t in threads:
 
 print "Result:"	
 print answer
+print ("Time elapsed: %s seconds" % (time.time() - start))
 	
