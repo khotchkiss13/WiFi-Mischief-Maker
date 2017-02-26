@@ -65,4 +65,7 @@ Instructions for hive distribution:
 1) Log into cs199 account on a Hive machine.
 2) Follow the guide to establish ssh keys found here: serverfault.com/questions/241588/how-to-automate-ssh-login-with-password
 3) Run the ./setup.sh script
-4) run the ./main.py script
+4) Make sure that the Hashcat Folder is in the root directory of the hive machine
+5) Make sure all of the files that are in the hive-root folder are in the root directory of the hive machine
+6) run the ./main.py script
+7) Enjoy your new password, as cracked by 29 GPUs!
