@@ -30,13 +30,10 @@ class workerThread (threading.Thread):
 		global answer
 		stdin, stdout, stderr = self.client.exec_command(self.construct_string())
 		lines = stdout.readlines()
-		for line in lines:
-			line = line.split(':')
-			if answer == None:
+		if answer == None:
+			for line in lines:
+				line = line.split(':')
 				answer = line[-1]
-			else:
-				if line[-1] != answer:
-					print "Mulitple Answers: " + line[-1] 
 		
 	def construct_string(self):
 		return "./hashcat-3.30/hashcat64.bin -m 2500 ./warring_hashcat-01.hccap ./passwords-" + str(self.number) + ".txt --force --quiet --show"
@@ -46,10 +43,13 @@ login = getpass.getuser()
 print("Logging in as " + login)
 threads = []
 current = 2
-while current <= 4:
-	thread = workerThread('hive'+str(current)+'.cs.berkeley.edu', login, current)
-	thread.start()
-	threads.append(thread)
+while current <= 30:
+	try:
+		thread = workerThread('hive'+str(current)+'.cs.berkeley.edu', login, current)
+		thread.start()
+		threads.append(thread)
+	except:
+		print("Could not connect to hive" + str(current))
 	current += 1
 
 for t in threads:
