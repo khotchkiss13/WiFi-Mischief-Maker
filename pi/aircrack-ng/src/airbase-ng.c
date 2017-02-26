@@ -231,6 +231,9 @@ struct real_AP_globals
   pthread_mutex_t buffer_mutex;
   pthread_cond_t buffer_cond;
   unsigned int buffer_count;
+
+  unsigned char anonce[32];
+  unsigned char snonce[32];
 } RAG;
 
 struct options
@@ -753,10 +756,151 @@ void associate_with_ap()
   send_packet(payload, p);
 }
 
+void send_ap_snonce(unsigned char *packet, unsigned int packet_length)
+{
+  unsigned char essid[12];
+  snprintf((char *) essid, 12, "2400warring");
+  unsigned char payload[200];
+
+  memcpy(RAG.snonce, "\x88\x88\x88\x88\x88\x88\x88\x88" \
+                     "\x88\x88\x88\x88\x88\x88\x88\x88" \
+                     "\x88\x88\x88\x88\x88\x88\x88\x88" \
+                     "\x88\x88\x88\x88\x88\x88\x88\x88", 32);
+
+  // Current position during packet creation
+  unsigned int p = 0;
+
+  payload[p] = 0x88;
+  payload[p + 1] = 0x01;
+  p += 2;
+  
+  // Duration
+  payload[p] = 0x3a;
+  payload[p + 1] = 0x01;
+  p += 2;
+
+  // Destination mac, source mac, and bssid
+  memcpy(payload + p, RAG.real_ap_bssid, 6);
+  p += 6;
+  memcpy(payload + p, opt.r_bssid, 6);
+  p += 6;
+  memcpy(payload + p, RAG.real_ap_bssid, 6);
+  p += 6;
+
+  // Sequence number
+  payload[p] = 0x00;
+  payload[p + 1] = 0x00;
+  p += 2;
+
+  // QoS control
+  payload[p] = 0x06;
+  payload[p + 1] = 0x00;
+  p += 2;
+
+  // Logical-link control
+  memcpy(payload + p, "\xaa\xaa\x03\x00\x00\x00\x88\x8e", 8);
+  p += 8;
+
+  // 802.1X authentication version and type 
+  payload[p] = 0x01;
+  payload[p + 1] = 0x03;
+  p += 2;
+
+  // EAPOL length and key descriptor type
+  payload[p] = 0x00;
+  payload[p + 1] = 0x75;
+  payload[p + 2] = 0x02;
+  p += 3;
+
+  // EAPOL key information (SMK message)
+  payload[p] = 0x01;
+  payload[p + 1] = 0x0a;
+  p += 2;
+  
+  // EAPOL key length
+  payload[p] = 0x00;
+  payload[p + 1] = 0x00;
+  p += 2;
+
+  // Replay counter
+  memcpy(payload + p, "\x00\x00\x00\x00\x00\x00\x00\x01", 8);
+  p += 8;
+
+  // WPA key snonce
+  // TODO: don't hardcode this value
+  memcpy(payload + p, RAG.snonce, 32);
+  p += 32;
+
+  // Key IV
+  memcpy(payload + p, "\x00\x00\x00\x00\x00\x00\x00\x00" \
+                      "\x00\x00\x00\x00\x00\x00\x00\x00", 16);
+  p += 16;
+
+  // WPA key RSC
+  memcpy(payload + p, "\x00\x00\x00\x00\x00\x00\x00\x00", 8);
+  p += 8;
+
+  // WPA key ID
+  memcpy(payload + p, "\x00\x00\x00\x00\x00\x00\x00\x00", 8);
+  p += 8;
+
+  // WPA key MIC
+  memcpy(payload + p, "\x00\x00\x00\x00\x00\x00\x00\x00" \
+                      "\x00\x00\x00\x00\x00\x00\x00\x00", 16);
+  p += 16;
+  
+  // WPA key data length
+  payload[p] = 0x00;
+  payload[p + 1] = 0x16;
+  p += 2;
+
+  // RSN information element
+  // TODO: this is duplicate of the association request
+  payload[p] = 0x30;
+  payload[p + 1] = 0x14;
+  p += 2;
+  memcpy(payload + p, "\x01\x00\x00\x0f\xac\x04\x01\x00" \
+                      "\x00\x0f\xac\x04\x01\x00\x00\x0f" \
+                      "\xac\x02\x0c\x00", 20);
+  p += 20;
+  printf("p is: %u\n", p);
+
+  // Compute and write MIC to payload
+  unsigned char pmk[40];
+  // TODO: the password shouldn't be hardcoded in the future
+  // `calc_pmk` should probably expect an unsigned char
+  calc_pmk("2400abcfed", (char *) essid, pmk);
+
+  unsigned char ptk[80];
+  calc_ptk_custom2(RAG.real_ap_bssid,
+                  opt.r_bssid,
+                  RAG.anonce,
+                  RAG.snonce,
+                  pmk,
+                  ptk);
+
+  unsigned char mic[20];
+  calc_mic_custom2(RAG.real_ap_bssid,
+                  opt.r_bssid,
+                  RAG.anonce,
+                  RAG.snonce,
+                  payload + 34,
+                  p - 34,
+                  pmk,
+                  ptk,
+                  mic);
+
+  memcpy(payload + p - 40, mic, 16);
+
+  send_packet(payload, p);
+}
+
 int real_ap_thread_func(void *arg)
 {
   authenticate_with_ap();
-  associate_with_ap();
+  authenticate_with_ap();
+  authenticate_with_ap();
+  // associate_with_ap();
 
   while (1)
   {
@@ -3412,16 +3556,36 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     return 1;
   }
 
-  if (packet[0] == 0x08 && memcmp(dmac, opt.r_bssid, 6) == 0)
+  if (packet[0] == 0x10 && memcmp(dmac, opt.r_bssid, 6) == 0)
     printf("%s\n", "Likely just got an association response");
   else if (packet[0] == 0xb0 && memcmp(dmac, opt.r_bssid, 6) == 0)
-  {
     printf("%s\n", "Likely just got an authentication response");
-    capture_packet(packet, length);
-  }
 
+  
   if (memcmp(dmac, opt.r_bssid, 6) == 0 && memcmp(smac, RAG.real_ap_bssid, 6) == 0)
   {
+    if (packet[0] == 0xb0)
+    {
+      associate_with_ap();
+    }
+    else if (packet[0] == 0x10)
+    {
+      printf("%s\n", "Definitely just got an association response");
+    }
+    // TODO: handshake packet might not come as QoS?
+    // \x02 = not retry and \x0a = retry
+    else if (memcmp(packet, "\x88\x02", 2) == 0 || memcmp(packet, "\x88\x0a", 2) == 0)
+    {
+      printf("%s\n", "Got 1st handshake packet");
+      // TODO: this offset shouldn't be fixed at 51
+      memcpy(RAG.anonce, packet + 51, 32);
+      printf("anonce:\n");
+      for (int i = 0; i < 32; i++)
+        printf("%02X ", RAG.anonce[i]);
+      send_ap_snonce(packet, length);
+    }
+    return 1;
+    /*
     if (pthread_mutex_lock(&RAG.buffer_mutex) != 0)
     {
       perror("pthread mutex lock error");
@@ -3438,7 +3602,7 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
       perror("pthread mutex unlock error");
       return 0;
     }
-
+    */
     return 0;
   }
 
