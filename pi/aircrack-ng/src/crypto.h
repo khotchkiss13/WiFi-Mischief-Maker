@@ -214,9 +214,18 @@ int decrypt_wep( unsigned char *data, int len, unsigned char *key, int keylen );
 int encrypt_wep( unsigned char *data, int len, unsigned char *key, int keylen );
 int check_crc_buf( unsigned char *buf, int len );
 int calc_crc_buf( unsigned char *buf, int len );
-void calc_mic_custom(struct WPA_hdsk *wpa, unsigned char *eapol, unsigned int eapol_size, unsigned char *bssid, unsigned char *pmk, unsigned char *ptk, unsigned char *mic);
+void calc_mic_custom2(unsigned char bssid[6],
+                      unsigned char stmac[6],
+                      unsigned char anonce[32],
+                      unsigned char snonce[32],
+                      unsigned char *eapol,
+                      unsigned int eapol_size,
+                      unsigned char pmk[32],
+                      unsigned char ptk[80],
+                      unsigned char mic[20]);
 void calc_mic(struct AP_info *ap, unsigned char *pmk, unsigned char *ptk,
     unsigned char *mic);
+void calc_mic_custom(struct WPA_hdsk *wpa, unsigned char *eapol, unsigned int eapol_size, unsigned char *bssid, unsigned char *pmk, unsigned char *ptk, unsigned char *mic);
 int known_clear(void *clear, int *clen, int *weight, unsigned char *wh, int len);
 int add_crc32(unsigned char* data, int length);
 int add_crc32_plain(unsigned char* data, int length);
@@ -229,6 +238,12 @@ int encrypt_ccmp( unsigned char *h80211, int caplen, unsigned char TK1[16], unsi
 int decrypt_ccmp( unsigned char *h80211, int caplen, unsigned char TK1[16] );
 int calc_ptk( struct WPA_ST_info *wpa, unsigned char pmk[32] );
 int calc_ptk_custom(struct WPA_hdsk *wpa, unsigned char bssid[6], unsigned char pmk[32], unsigned char ptk[80]);
+void calc_ptk_custom2(unsigned char bssid[6],
+                     unsigned char stmac[6],
+                     unsigned char anonce[32],
+                     unsigned char snonce[32],
+                     unsigned char pmk[32],
+                     unsigned char ptk[80]);
 int calc_tkip_mic(unsigned char* packet, int length, unsigned char ptk[80], unsigned char value[8]);
 int michael_test(unsigned char key[8], unsigned char *message, int length, unsigned char out[8]);
 int calc_tkip_mic_key(unsigned char* packet, int length, unsigned char key[8]);
