@@ -823,11 +823,11 @@ void send_ap_snonce(unsigned char *packet, unsigned int packet_length)
   p += 2;
 
   // Replay counter
+  // TODO: should pull the replay counter out from M1
   memcpy(payload + p, "\x00\x00\x00\x00\x00\x00\x00\x01", 8);
   p += 8;
 
   // WPA key snonce
-  // TODO: don't hardcode this value
   memcpy(payload + p, RAG.snonce, 32);
   p += 32;
 
@@ -893,6 +893,11 @@ void send_ap_snonce(unsigned char *packet, unsigned int packet_length)
   memcpy(payload + p - 40, mic, 16);
 
   send_packet(payload, p);
+}
+
+void send_m4_to_ap(unsigned char *packet, unsigned int length)
+{
+  printf("send_m4 not implemented yet\n");
 }
 
 int real_ap_thread_func(void *arg)
@@ -3576,13 +3581,27 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     // \x02 = not retry and \x0a = retry
     else if (memcmp(packet, "\x88\x02", 2) == 0 || memcmp(packet, "\x88\x0a", 2) == 0)
     {
-      printf("%s\n", "Got 1st handshake packet");
-      // TODO: this offset shouldn't be fixed at 51
-      memcpy(RAG.anonce, packet + 51, 32);
-      printf("anonce:\n");
-      for (int i = 0; i < 32; i++)
-        printf("%02X ", RAG.anonce[i]);
-      send_ap_snonce(packet, length);
+      printf("%s\n", "Got handshake packet");
+      // Key information indicates M1
+      if (memcmp(packet + 39, "\x00\x8a", 2) == 0)
+      {
+        // TODO: this offset shouldn't be fixed at 51
+        memcpy(RAG.anonce, packet + 51, 32);
+        printf("anonce:\n");
+        for (int i = 0; i < 32; i++)
+          printf("%02X ", RAG.anonce[i]);
+        send_ap_snonce(packet, length);
+      }
+      // Key information indicates M3
+      else if (memcmp(packet + 39, "\x13\xca", 2) == 0)
+      {
+        if (memcmp(RAG.anonce, packet + 51, 32) != 0)
+          printf("M1 and M3 anonce values do not match!\n");
+        else
+          send_m4_to_ap(packet, length);
+      }
+      else
+        printf("Got packet that looks like handshake but is not M1 or M3\n");
     }
     return 1;
     /*
