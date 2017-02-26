@@ -56,3 +56,13 @@ HWMon.Dev.#1.....: Temp: 62c Fan: 54%
 
 Started: Sun Feb 19 18:41:27 2017
 Stopped: Sun Feb 19 18:42:38 2017
+
+
+=================================================================================================
+
+Instructions for hive distribution:
+
+1) Log into cs199 account on a Hive machine.
+2) Follow the guide to establish ssh keys found here: serverfault.com/questions/241588/how-to-automate-ssh-login-with-password
+3) Run the ./setup.sh script
+4) run the ./main.py script
