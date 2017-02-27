@@ -223,14 +223,23 @@ struct globals
   unsigned int payload_length;
 } G;
 
+typedef struct real_AP_packet
+{
+  unsigned char *packet;
+  unsigned int length;
+  struct real_AP_packet *next_RAP;
+} RAP_t;
+
 struct real_AP_globals
 {
   unsigned char real_ap_bssid[6];
   
-  unsigned char recv_buffer[4096];
   pthread_mutex_t buffer_mutex;
   pthread_cond_t buffer_cond;
   unsigned int buffer_count;
+  // `RAP_head` and `RAP_tail` used to track FIFO queue of real AP packets
+  RAP_t *RAP_head;
+  RAP_t *RAP_tail;
 
   unsigned char anonce[32];
   unsigned char snonce[32];
@@ -626,7 +635,7 @@ void authenticate_with_ap()
   p += 6;
 
   // Fragment and sequence number
-  payload[p] = 0x10;
+  payload[p] = 0x00;
   payload[p + 1] = 0x00;
   p += 2;
 
@@ -905,7 +914,8 @@ int real_ap_thread_func(void *arg)
   authenticate_with_ap();
   authenticate_with_ap();
   authenticate_with_ap();
-  // associate_with_ap();
+  authenticate_with_ap();
+  authenticate_with_ap();
 
   while (1)
   {
@@ -920,12 +930,35 @@ int real_ap_thread_func(void *arg)
 
     printf("There are %i packets to be recvd.\n", RAG.buffer_count);
 
+    RAP_t *current_RAP = RAG.RAP_head;
+    RAG.RAP_head = RAG.RAP_head->next_RAP;
+
+    if (RAG.RAP_head == NULL)
+      RAG.RAP_tail = NULL;
+
+    RAG.buffer_count -= 1;
+
     if (pthread_mutex_unlock(&RAG.buffer_mutex) != 0)
     {
       perror("pthread mutex unlock error");
       return 0;
     }
+
+    int i;
+    for (i = 0; i < current_RAP->length; i += 1)
+    {
+      if (i % 16 == 0)
+        printf("\n");
+      printf("%02X ", current_RAP->packet[i]);
+    }
+    printf("\n");
+
+    free(current_RAP->packet);
+    free(current_RAP);
+
   }
+
+  return 1;
 }
 
 int dump_initialize( char *prefix )
@@ -3572,6 +3605,8 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     if (packet[0] == 0xb0)
     {
       associate_with_ap();
+      associate_with_ap();
+      associate_with_ap();
     }
     else if (packet[0] == 0x10)
     {
@@ -3603,8 +3638,7 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
       else
         printf("Got packet that looks like handshake but is not M1 or M3\n");
     }
-    return 1;
-    /*
+    
     if (pthread_mutex_lock(&RAG.buffer_mutex) != 0)
     {
       perror("pthread mutex lock error");
@@ -3612,17 +3646,46 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     }
 
     printf("%s\n", "Copying packet into RAG buffer");
-    memcpy(RAG.recv_buffer, packet, length);
-    RAG.buffer_count += 1;
+    RAP_t *new_RAP = (RAP_t *) malloc(sizeof(RAP_t));
+    
+    if (new_RAP == NULL)
+    {
+      perror("RAP_t malloc");
+      return 0;
+    }
 
+    new_RAP->next_RAP = NULL;
+    new_RAP->length = length;
+    new_RAP->packet = (unsigned char *) malloc(length);
+    if (new_RAP->packet == NULL)
+    {
+      perror("RAP_t->packet malloc");
+      return 0;
+    }
+    memcpy(new_RAP->packet, packet, length);
+
+    if (RAG.RAP_tail == NULL)
+    {
+      RAG.RAP_head = new_RAP;
+      RAG.RAP_tail = new_RAP;
+    }
+    else
+    {
+      RAG.RAP_tail->next_RAP = new_RAP;
+      RAG.RAP_tail = new_RAP;
+    }
+
+    RAG.buffer_count += 1;
+    
     pthread_cond_signal(&RAG.buffer_cond);
+
     if (pthread_mutex_unlock(&RAG.buffer_mutex) != 0)
     {
       perror("pthread mutex unlock error");
       return 0;
     }
-    */
-    return 0;
+    
+    return 1;
   }
 
   /* MAC Filter */
@@ -4733,6 +4796,8 @@ int main( int argc, char *argv[] )
   pthread_mutex_init(&RAG.buffer_mutex, NULL);
   pthread_cond_init(&RAG.buffer_cond, NULL);
   RAG.buffer_count = 0;
+  RAG.RAP_head = NULL;
+  RAG.RAP_tail = NULL;
 
   memset( &opt, 0, sizeof( opt ) );
   memset( &dev, 0, sizeof( dev ) );
