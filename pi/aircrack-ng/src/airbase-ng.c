@@ -914,8 +914,6 @@ int real_ap_thread_func(void *arg)
   authenticate_with_ap();
   authenticate_with_ap();
   authenticate_with_ap();
-  authenticate_with_ap();
-  authenticate_with_ap();
 
   while (1)
   {
@@ -944,6 +942,7 @@ int real_ap_thread_func(void *arg)
       return 0;
     }
 
+    /*
     int i;
     for (i = 0; i < current_RAP->length; i += 1)
     {
@@ -952,10 +951,54 @@ int real_ap_thread_func(void *arg)
       printf("%02X ", current_RAP->packet[i]);
     }
     printf("\n");
+    */
 
+    // TODO: variable names...
+    unsigned char *packet = current_RAP->packet;
+    unsigned int length = current_RAP->length;
+
+    // Authentication response
+    if (packet[0] == 0xb0)
+    {
+      printf("%s\n", "Definitely just got an authentication response");
+      associate_with_ap();
+      associate_with_ap();
+      associate_with_ap();
+    }
+    // Association response
+    else if (packet[0] == 0x10)
+    {
+      printf("%s\n", "Definitely just got an association response");
+    }
+    // TODO: handshake packet might not come as QoS?
+    // \x02 = not retry and \x0a = retry
+    else if (memcmp(packet, "\x88\x02", 2) == 0 || memcmp(packet, "\x88\x0a", 2) == 0)
+    {
+      printf("%s\n", "Got handshake packet");
+      // Key information indicates M1
+      if (memcmp(packet + 39, "\x00\x8a", 2) == 0)
+      {
+        // TODO: this offset shouldn't be fixed at 51
+        memcpy(RAG.anonce, packet + 51, 32);
+        printf("anonce:\n");
+        for (int i = 0; i < 32; i++)
+          printf("%02X ", RAG.anonce[i]);
+        send_ap_snonce(packet, length);
+      }
+      // Key information indicates M3
+      else if (memcmp(packet + 39, "\x13\xca", 2) == 0)
+      {
+        if (memcmp(RAG.anonce, packet + 51, 32) != 0)
+          printf("M1 and M3 anonce values do not match!\n");
+        else
+          send_m4_to_ap(packet, length);
+      }
+      else
+        printf("Got packet that looks like handshake but is not M1 or M3\n");
+    }
+    
     free(current_RAP->packet);
     free(current_RAP);
-
   }
 
   return 1;
@@ -3594,51 +3637,9 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     return 1;
   }
 
-  if (packet[0] == 0x10 && memcmp(dmac, opt.r_bssid, 6) == 0)
-    printf("%s\n", "Likely just got an association response");
-  else if (packet[0] == 0xb0 && memcmp(dmac, opt.r_bssid, 6) == 0)
-    printf("%s\n", "Likely just got an authentication response");
-
-  
+  // If packet from real AP and to fake AP, buffer packet to real AP thread
   if (memcmp(dmac, opt.r_bssid, 6) == 0 && memcmp(smac, RAG.real_ap_bssid, 6) == 0)
   {
-    if (packet[0] == 0xb0)
-    {
-      associate_with_ap();
-      associate_with_ap();
-      associate_with_ap();
-    }
-    else if (packet[0] == 0x10)
-    {
-      printf("%s\n", "Definitely just got an association response");
-    }
-    // TODO: handshake packet might not come as QoS?
-    // \x02 = not retry and \x0a = retry
-    else if (memcmp(packet, "\x88\x02", 2) == 0 || memcmp(packet, "\x88\x0a", 2) == 0)
-    {
-      printf("%s\n", "Got handshake packet");
-      // Key information indicates M1
-      if (memcmp(packet + 39, "\x00\x8a", 2) == 0)
-      {
-        // TODO: this offset shouldn't be fixed at 51
-        memcpy(RAG.anonce, packet + 51, 32);
-        printf("anonce:\n");
-        for (int i = 0; i < 32; i++)
-          printf("%02X ", RAG.anonce[i]);
-        send_ap_snonce(packet, length);
-      }
-      // Key information indicates M3
-      else if (memcmp(packet + 39, "\x13\xca", 2) == 0)
-      {
-        if (memcmp(RAG.anonce, packet + 51, 32) != 0)
-          printf("M1 and M3 anonce values do not match!\n");
-        else
-          send_m4_to_ap(packet, length);
-      }
-      else
-        printf("Got packet that looks like handshake but is not M1 or M3\n");
-    }
-    
     if (pthread_mutex_lock(&RAG.buffer_mutex) != 0)
     {
       perror("pthread mutex lock error");
