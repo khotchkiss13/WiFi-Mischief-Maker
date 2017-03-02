@@ -9,6 +9,7 @@ import getpass
 import time
 
 answer = None
+start = time.time()
 
 class workerThread (threading.Thread):
 	def __init__(self, host, user, number):
@@ -21,33 +22,35 @@ class workerThread (threading.Thread):
 		self.client.connect(host, username=user)
 	
 	def run(self):		
-		print "Starting run on host {}".format(self.host)
 		self.worker_main()
 		self.client.close()
-		print "Finished run on host {} .... Exiting.".format(self.host)
 	 
 	def worker_main(self):
 		'''Use this method to execute the main call to oclhashcat and return the results'''
 		global answer
+		global start
 		stdin, stdout, stderr = self.client.exec_command(self.construct_string())
 		lines = stdout.readlines()
-		if answer == None:
-			for line in lines:
-				line = line.split(':')
-				answer = line[-1]
+		for line in lines:
+			line = line.split(':')
+			canidate = line[-1].strip()
+			if len(canidate) > 0:
+				print("Match found: " + canidate)
+				print ("Time elapsed: %s seconds" % (time.time() - start))
+				answer = canidate
 		
 	def construct_string(self):
 		# return 'ls'
-		return "./Downloads/hashcat-3.30/hashcat64.bin -m 2500 ./warring_hashcat-01.hccap ./passwords-" + str(self.number) + ".txt --force --quiet --show"
+		return "./hashcat-" + str(self.number) + "/hashcat-3.30/hashcat64.bin -m 2500 ./warring_hashcat-01.hccap ./passwords-" + str(self.number) + ".txt -w 3 --force --quiet --potfile-disable"
 
 #create new threads
-start = time.time()
+
 login = getpass.getuser()
-print("Logging in as " + login)
 threads = []
 current = 1
+blacklist = [4]
 while current <= 30:
-	if current == 16:
+	if current in blacklist:
 		current += 1
 		continue
 	try:
