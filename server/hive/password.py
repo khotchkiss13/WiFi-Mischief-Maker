@@ -9,9 +9,11 @@ import getpass
 import time
 
 answer = None
-start = time.time()
+start = -1
 
 def crack_password(hccap_filename, blacklist):
+	global start
+	start = time.time()
 
 	class workerThread (threading.Thread):
 		def __init__(self, host, user, number):
