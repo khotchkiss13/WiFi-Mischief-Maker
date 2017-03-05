@@ -223,14 +223,23 @@ struct globals
   unsigned int payload_length;
 } G;
 
+typedef struct real_AP_packet
+{
+  unsigned char *packet;
+  unsigned int length;
+  struct real_AP_packet *next_RAP;
+} RAP_t;
+
 struct real_AP_globals
 {
   unsigned char real_ap_bssid[6];
   
-  unsigned char recv_buffer[4096];
   pthread_mutex_t buffer_mutex;
   pthread_cond_t buffer_cond;
   unsigned int buffer_count;
+  // `RAP_head` and `RAP_tail` used to track FIFO queue of real AP packets
+  RAP_t *RAP_head;
+  RAP_t *RAP_tail;
 
   unsigned char anonce[32];
   unsigned char snonce[32];
@@ -626,7 +635,7 @@ void authenticate_with_ap()
   p += 6;
 
   // Fragment and sequence number
-  payload[p] = 0x10;
+  payload[p] = 0x00;
   payload[p + 1] = 0x00;
   p += 2;
 
@@ -823,11 +832,11 @@ void send_ap_snonce(unsigned char *packet, unsigned int packet_length)
   p += 2;
 
   // Replay counter
+  // TODO: should pull the replay counter out from M1
   memcpy(payload + p, "\x00\x00\x00\x00\x00\x00\x00\x01", 8);
   p += 8;
 
   // WPA key snonce
-  // TODO: don't hardcode this value
   memcpy(payload + p, RAG.snonce, 32);
   p += 32;
 
@@ -895,12 +904,16 @@ void send_ap_snonce(unsigned char *packet, unsigned int packet_length)
   send_packet(payload, p);
 }
 
+void send_m4_to_ap(unsigned char *packet, unsigned int length)
+{
+  printf("send_m4 not implemented yet\n");
+}
+
 int real_ap_thread_func(void *arg)
 {
   authenticate_with_ap();
   authenticate_with_ap();
   authenticate_with_ap();
-  // associate_with_ap();
 
   while (1)
   {
@@ -915,12 +928,80 @@ int real_ap_thread_func(void *arg)
 
     printf("There are %i packets to be recvd.\n", RAG.buffer_count);
 
+    RAP_t *current_RAP = RAG.RAP_head;
+    RAG.RAP_head = RAG.RAP_head->next_RAP;
+
+    if (RAG.RAP_head == NULL)
+      RAG.RAP_tail = NULL;
+
+    RAG.buffer_count -= 1;
+
     if (pthread_mutex_unlock(&RAG.buffer_mutex) != 0)
     {
       perror("pthread mutex unlock error");
       return 0;
     }
+
+    /*
+    int i;
+    for (i = 0; i < current_RAP->length; i += 1)
+    {
+      if (i % 16 == 0)
+        printf("\n");
+      printf("%02X ", current_RAP->packet[i]);
+    }
+    printf("\n");
+    */
+
+    // TODO: variable names...
+    unsigned char *packet = current_RAP->packet;
+    unsigned int length = current_RAP->length;
+
+    // Authentication response
+    if (packet[0] == 0xb0)
+    {
+      printf("%s\n", "Definitely just got an authentication response");
+      associate_with_ap();
+      associate_with_ap();
+      associate_with_ap();
+    }
+    // Association response
+    else if (packet[0] == 0x10)
+    {
+      printf("%s\n", "Definitely just got an association response");
+    }
+    // TODO: handshake packet might not come as QoS?
+    // \x02 = not retry and \x0a = retry
+    else if (memcmp(packet, "\x88\x02", 2) == 0 || memcmp(packet, "\x88\x0a", 2) == 0)
+    {
+      printf("%s\n", "Got handshake packet");
+      // Key information indicates M1
+      if (memcmp(packet + 39, "\x00\x8a", 2) == 0)
+      {
+        // TODO: this offset shouldn't be fixed at 51
+        memcpy(RAG.anonce, packet + 51, 32);
+        printf("anonce:\n");
+        for (int i = 0; i < 32; i++)
+          printf("%02X ", RAG.anonce[i]);
+        send_ap_snonce(packet, length);
+      }
+      // Key information indicates M3
+      else if (memcmp(packet + 39, "\x13\xca", 2) == 0)
+      {
+        if (memcmp(RAG.anonce, packet + 51, 32) != 0)
+          printf("M1 and M3 anonce values do not match!\n");
+        else
+          send_m4_to_ap(packet, length);
+      }
+      else
+        printf("Got packet that looks like handshake but is not M1 or M3\n");
+    }
+    
+    free(current_RAP->packet);
+    free(current_RAP);
   }
+
+  return 1;
 }
 
 int dump_initialize( char *prefix )
@@ -3556,36 +3637,9 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     return 1;
   }
 
-  if (packet[0] == 0x10 && memcmp(dmac, opt.r_bssid, 6) == 0)
-    printf("%s\n", "Likely just got an association response");
-  else if (packet[0] == 0xb0 && memcmp(dmac, opt.r_bssid, 6) == 0)
-    printf("%s\n", "Likely just got an authentication response");
-
-  
+  // If packet from real AP and to fake AP, buffer packet to real AP thread
   if (memcmp(dmac, opt.r_bssid, 6) == 0 && memcmp(smac, RAG.real_ap_bssid, 6) == 0)
   {
-    if (packet[0] == 0xb0)
-    {
-      associate_with_ap();
-    }
-    else if (packet[0] == 0x10)
-    {
-      printf("%s\n", "Definitely just got an association response");
-    }
-    // TODO: handshake packet might not come as QoS?
-    // \x02 = not retry and \x0a = retry
-    else if (memcmp(packet, "\x88\x02", 2) == 0 || memcmp(packet, "\x88\x0a", 2) == 0)
-    {
-      printf("%s\n", "Got 1st handshake packet");
-      // TODO: this offset shouldn't be fixed at 51
-      memcpy(RAG.anonce, packet + 51, 32);
-      printf("anonce:\n");
-      for (int i = 0; i < 32; i++)
-        printf("%02X ", RAG.anonce[i]);
-      send_ap_snonce(packet, length);
-    }
-    return 1;
-    /*
     if (pthread_mutex_lock(&RAG.buffer_mutex) != 0)
     {
       perror("pthread mutex lock error");
@@ -3593,17 +3647,46 @@ int packet_recv(unsigned char* packet, int length, struct AP_conf *apc, int exte
     }
 
     printf("%s\n", "Copying packet into RAG buffer");
-    memcpy(RAG.recv_buffer, packet, length);
-    RAG.buffer_count += 1;
+    RAP_t *new_RAP = (RAP_t *) malloc(sizeof(RAP_t));
+    
+    if (new_RAP == NULL)
+    {
+      perror("RAP_t malloc");
+      return 0;
+    }
 
+    new_RAP->next_RAP = NULL;
+    new_RAP->length = length;
+    new_RAP->packet = (unsigned char *) malloc(length);
+    if (new_RAP->packet == NULL)
+    {
+      perror("RAP_t->packet malloc");
+      return 0;
+    }
+    memcpy(new_RAP->packet, packet, length);
+
+    if (RAG.RAP_tail == NULL)
+    {
+      RAG.RAP_head = new_RAP;
+      RAG.RAP_tail = new_RAP;
+    }
+    else
+    {
+      RAG.RAP_tail->next_RAP = new_RAP;
+      RAG.RAP_tail = new_RAP;
+    }
+
+    RAG.buffer_count += 1;
+    
     pthread_cond_signal(&RAG.buffer_cond);
+
     if (pthread_mutex_unlock(&RAG.buffer_mutex) != 0)
     {
       perror("pthread mutex unlock error");
       return 0;
     }
-    */
-    return 0;
+    
+    return 1;
   }
 
   /* MAC Filter */
@@ -4714,6 +4797,8 @@ int main( int argc, char *argv[] )
   pthread_mutex_init(&RAG.buffer_mutex, NULL);
   pthread_cond_init(&RAG.buffer_cond, NULL);
   RAG.buffer_count = 0;
+  RAG.RAP_head = NULL;
+  RAG.RAP_tail = NULL;
 
   memset( &opt, 0, sizeof( opt ) );
   memset( &dev, 0, sizeof( dev ) );
