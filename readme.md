@@ -4,10 +4,10 @@ The WPA2 handshake for secure WiFi is not as secure as it should be. This projec
   
 ## Authors
 
-**Amy Shu** [awshu@berkeley.edu](awshu@berkeley.edu)
-**Kyle Hotchkiss** [khotchkiss13@berkeley.edu](khotchkiss13@berkeley.edu)
-**Nate Parke** [nathaniel.parke@berkeley.edu](nathaniel.parke@berkeley.edu)
-**Warren Shen** [warrenshen@berkeley.edu](warrenshen@berkeley.edu)
+* **Amy Shu** [awshu@berkeley.edu](awshu@berkeley.edu)
+* **Kyle Hotchkiss** [khotchkiss13@berkeley.edu](khotchkiss13@berkeley.edu)
+* **Nate Parke** [nathaniel.parke@berkeley.edu](nathaniel.parke@berkeley.edu)
+* **Warren Shen** [warrenshen@berkeley.edu](warrenshen@berkeley.edu)
 
 ## 194-30 Feedback
 
